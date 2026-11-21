@@ -1,0 +1,248 @@
+<!doctype html>
+<!--
+  PROTOTYPE: throwaway. Do not build on this.
+  Question (#4 art direction): what should the art field look like through the day?
+  Plan: three structurally different takes on the field (Drift, Horizon, Glow), switchable
+  with ?variant= and the bottom bar, all sharing the palettes and brightness from the
+  #4 answers. Open this file in a browser; no build step.
+  Colours are written as 8-bit panel values and shown as sRGB. The panel applies CIE
+  correction, so a monitor is only an approximation; the panels have the final word.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Art direction prototype</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0b0d; color: #ccc; font: 13px/1.4 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px 16px 96px; }
+  h1 { font-size: 15px; font-weight: 600; color: #eee; margin: 0 0 4px; }
+  p.note { margin: 0 0 14px; color: #888; }
+  .strip { background: #000; padding: 12px; border-radius: 6px; }
+  canvas { display: block; width: 100%; aspect-ratio: 4 / 1; image-rendering: pixelated; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 20px; margin-top: 14px; }
+  .controls label { display: flex; gap: 8px; align-items: center; }
+  .controls input[type=range] { flex: 1; }
+  button, select { background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
+  button:hover { background: #2c2c2c; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  pre#state { margin-top: 14px; background: #141417; padding: 10px; border-radius: 6px; color: #aaa; white-space: pre-wrap; }
+  .swatch { display: inline-block; width: 12px; height: 12px; vertical-align: -2px; border: 1px solid #333; }
+  #switcher { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+    background: #f4f4f4; color: #111; padding: 6px 10px; border-radius: 999px; box-shadow: 0 4px 18px rgba(0,0,0,.6); font-weight: 600; }
+  #switcher button { background: #111; color: #fff; border: 0; border-radius: 999px; width: 28px; height: 28px; padding: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Art direction prototype: 256×64 strip</h1>
+  <p class="note">Throwaway. Greenwich, times in UTC. Colours are panel values shown on a monitor, so treat hue and balance as indicative; brightness on the panels will differ.</p>
+  <div class="strip"><canvas id="c" width="1024" height="256"></canvas></div>
+
+  <div class="controls">
+    <label>Date
+      <select id="date">
+        <option value="2026-11-21">Today (21 Nov)</option>
+        <option value="2026-12-21">Midwinter</option>
+        <option value="2027-03-20">Equinox</option>
+        <option value="2027-06-21">Midsummer</option>
+      </select>
+    </label>
+    <label>Time <input id="time" type="range" min="0" max="1439" step="1"><span id="timeLabel"></span></label>
+    <div class="row">Jump:
+      <button data-jump="dawn">Dawn</button><button data-jump="noon">Noon</button>
+      <button data-jump="dusk">Dusk</button><button data-jump="night">Night</button>
+    </div>
+    <div class="row">Clock:
+      <button data-speed="0">Pause</button><button data-speed="1">Real time</button>
+      <button data-speed="1440">Day in 60 s</button><button data-speed="4320">Day in 20 s</button>
+    </div>
+    <label>Drift speed <input id="drift" type="range" min="0" max="30" step="0.5" value="0"><span id="driftLabel"></span></label>
+    <label>Contrast <input id="contrast" type="range" min="0.5" max="4" step="0.25" value="1"><span id="contrastLabel">×1</span></label>
+    <div class="row">
+      <label><input id="east" type="checkbox"> East is on the right</label>
+      <label><input id="seams" type="checkbox"> Show panel seams</label>
+      <label><input id="dots" type="checkbox" checked> LED dots</label>
+    </div>
+  </div>
+  <pre id="state"></pre>
+</main>
+
+<div id="switcher"><button id="prev" aria-label="Previous variant">←</button><span id="vlabel"></span><button id="next" aria-label="Next variant">→</button></div>
+
+<script>
+// ---------- Sun (NOAA-style approximation, good to a fraction of a degree) ----------
+const LAT = 51.4769, LON = 0.0, rad = Math.PI / 180;
+function sun(date) {
+  const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360, g = (357.528 + 0.9856003 * n) * rad;
+  const lam = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+  const eps = (23.439 - 0.0000004 * n) * rad;
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+  const gmst = ((18.697374558 + 24.06570982441908 * n) % 24 + 24) % 24;
+  const H = (gmst * 15 + LON) * rad - ra, phi = LAT * rad;
+  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = (Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) / rad + 180 + 360) % 360;
+  return { el: el / rad, az };
+}
+
+// ---------- Palettes keyed by solar elevation (8-bit panel values, brightness baked in) ----------
+// a/b: the two colours the field moves between; top/horizon: for the Horizon variant; glow: the sun's side.
+const KEYS = [
+  { el: -90, name: "night",          a: [12, 6, 32],    b: [6, 4, 20],     top: [5, 3, 16],    hor: [12, 7, 34],   glow: [16, 8, 38] },
+  { el: -18, name: "night",          a: [12, 6, 32],    b: [6, 4, 20],     top: [5, 3, 16],    hor: [12, 7, 34],   glow: [16, 8, 38] },
+  { el: -12, name: "nautical",       a: [22, 12, 56],   b: [10, 8, 34],    top: [8, 6, 28],    hor: [30, 16, 60],  glow: [40, 18, 62] },
+  { el: -6,  name: "civil twilight", a: [60, 28, 92],   b: [26, 18, 70],   top: [18, 14, 58],  hor: [96, 42, 84],  glow: [120, 46, 78] },
+  { el: -1,  name: "twilight",       a: [130, 52, 86],  b: [56, 36, 112],  top: [36, 32, 96],  hor: [168, 70, 72], glow: [190, 80, 50] },
+  { el: 3,   name: "golden hour",    a: [180, 92, 34],  b: [130, 58, 70],  top: [70, 70, 120], hor: [200, 110, 40],glow: [220, 120, 30] },
+  { el: 10,  name: "golden hour",    a: [160, 112, 60], b: [80, 90, 130],  top: [64, 88, 136], hor: [170, 120, 70],glow: [180, 125, 60] },
+  { el: 22,  name: "day",            a: [64, 98, 134],  b: [92, 120, 142], top: [52, 86, 132], hor: [104, 126, 142],glow: [120, 128, 132] },
+  { el: 90,  name: "day",            a: [64, 98, 134],  b: [92, 120, 142], top: [52, 86, 132], hor: [104, 126, 142],glow: [120, 128, 132] },
+];
+const toLin = v => Math.pow(v / 255, 2.2), toByte = v => Math.round(255 * Math.pow(Math.min(1, Math.max(0, v)), 1 / 2.2));
+const lin = c => c.map(toLin);
+const smooth = t => t * t * (3 - 2 * t);
+function palette(el) {
+  let i = 0; while (i < KEYS.length - 2 && el > KEYS[i + 1].el) i++;
+  const k0 = KEYS[i], k1 = KEYS[i + 1], t = smooth(Math.min(1, Math.max(0, (el - k0.el) / (k1.el - k0.el))));
+  const out = { name: t < 0.5 ? k0.name : k1.name };
+  for (const f of ["a", "b", "top", "hor", "glow"]) out[f] = lin(k0[f]).map((v, j) => v + (lin(k1[f])[j] - v) * t);
+  // Contrast: push a and b (and top/hor) apart around their midpoint, in linear light.
+  const k = parseFloat(document.getElementById("contrast")?.value ?? 1);
+  for (const [p, q] of [["a", "b"], ["top", "hor"]]) {
+    const m = out[p].map((v, j) => (v + out[q][j]) / 2);
+    out[p] = m.map((v, j) => Math.max(0, v + (out[p][j] - v) * k));
+    out[q] = m.map((v, j) => Math.max(0, v + (out[q][j] - v) * k));
+  }
+  return out;
+}
+
+// ---------- Noise: smooth 3D value noise, two octaves ----------
+function hash(x, y, z) { let h = (x * 374761393 + y * 668265263 + z * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
+function vnoise(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const u = smooth(x - xi), v = smooth(y - yi), w = smooth(z - zi);
+  const l = (a, b, t) => a + (b - a) * t;
+  const c = (dx, dy, dz) => hash(xi + dx, yi + dy, zi + dz);
+  return l(l(l(c(0,0,0), c(1,0,0), u), l(c(0,1,0), c(1,1,0), u), v),
+           l(l(c(0,0,1), c(1,0,1), u), l(c(0,1,1), c(1,1,1), u), v), w);
+}
+const fbm = (x, y, z) => 0.7 * vnoise(x, y, z) + 0.3 * vnoise(x * 2.1 + 17, y * 2.1 + 5, z * 1.7);
+
+// ---------- Variants: structurally different ways of laying the palette onto the field ----------
+const W = 256, H = 64, F = 3 / 256; // about three features across the strip
+const mix = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t];
+function sunX(az, eastRight) { // azimuth 90 (east) -> east end, 270 (west) -> west end
+  const t = Math.min(1, Math.max(0, (az - 90) / 180));
+  return (eastRight ? 1 - t : t) * (W - 1);
+}
+const VARIANTS = {
+  A: { name: "Drift", desc: "Two colours of the hour, mixed by slowly drifting noise; azimuth a gentle warm bias.",
+    px(x, y, P, s, z) {
+      const n = fbm(x * F + z * 0.3, y * F, z);
+      let c = mix(P.a, P.b, smooth(n));
+      const d = (x - s.x) / W, g = 0.18 * Math.exp(-d * d * 6);
+      return mix(c, P.glow, g);
+    } },
+  B: { name: "Horizon", desc: "A sky gradient from top to horizon (bottom edge), its bands warped by noise. Rothko / real skies.",
+    px(x, y, P, s, z) {
+      const warp = (fbm(x * F * 0.8 + z * 0.2, y * F * 2, z) - 0.5) * 0.6;
+      const t = Math.min(1, Math.max(0, y / (H - 1) + warp));
+      let c = mix(P.top, P.hor, smooth(t));
+      const d = (x - s.x) / W, g = 0.22 * Math.exp(-d * d * 5) * t;
+      return mix(c, P.glow, g);
+    } },
+  C: { name: "Glow", desc: "A wide soft light at the sun's position in a hazy field; stronger azimuth. Eliasson / Turrell.",
+    px(x, y, P, s, z) {
+      const n = fbm(x * F * 0.7 + z * 0.25, y * F * 0.7, z);
+      let c = mix(P.b, P.a, 0.35 + 0.3 * n);
+      const dx = (x - s.x) / W, dy = (y - s.y) / W;
+      const g = Math.exp(-(dx * dx + dy * dy * 4) * 4) * (0.55 + 0.25 * n);
+      return mix(c, P.glow, g);
+    } },
+};
+
+// ---------- State and rendering ----------
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const keys = Object.keys(VARIANTS);
+let variant = keys.includes(params.get("variant")) ? params.get("variant") : "A";
+let minutes = 12 * 60, speed = 0, driftClock = 0, last = performance.now();
+const ctx = $("c").getContext("2d"), img = ctx.createImageData(1024, 256);
+
+function dateAt(m) { return new Date(Date.parse($("date").value + "T00:00:00Z") + m * 60000); }
+function findTimes() {
+  let prev = sun(dateAt(0)).el, best = { noon: 0, night: 0 }, maxEl = -99, minEl = 99, dawn = null, dusk = null;
+  for (let m = 0; m < 1440; m++) {
+    const el = sun(dateAt(m)).el;
+    if (el > maxEl) { maxEl = el; best.noon = m; }
+    if (el < minEl) { minEl = el; best.night = m; }
+    if (prev < -4 && el >= -4 && dawn === null) dawn = m;
+    if (prev >= -4 && el < -4) dusk = m;
+    prev = el;
+  }
+  return { dawn: dawn ?? best.noon, noon: best.noon, dusk: dusk ?? best.noon, night: best.night };
+}
+
+function render() {
+  const s0 = sun(dateAt(minutes)), P = palette(s0.el);
+  const eastRight = $("east").checked;
+  const s = { x: sunX(s0.az, eastRight), y: s0.el < 0 ? H + 20 - s0.el : Math.max(-10, H - s0.el * 3) };
+  const z = driftClock / 240; // one noise unit per ~4 minutes at drift speed 1
+  const v = VARIANTS[variant], d = img.data, dots = $("dots").checked, seams = $("seams").checked;
+  let sum = 0, peak = [0, 0, 0];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = v.px(x, y, P, s, z).map(toByte);
+    sum += (c[0] + c[1] + c[2]) / 3;
+    if (c[0] + c[1] + c[2] > peak[0] + peak[1] + peak[2]) peak = c;
+    const seam = seams && x % 64 === 0 && x > 0;
+    for (let yy = 0; yy < 4; yy++) for (let xx = 0; xx < 4; xx++) {
+      const off = (dots && (xx === 3 || yy === 3)) || (seam && xx === 0);
+      const i = ((y * 4 + yy) * 1024 + x * 4 + xx) * 4;
+      d[i] = off ? 0 : c[0]; d[i + 1] = off ? 0 : c[1]; d[i + 2] = off ? 0 : c[2]; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const hh = String(Math.floor(minutes / 60)).padStart(2, "0"), mm = String(Math.floor(minutes % 60)).padStart(2, "0");
+  $("timeLabel").textContent = `${hh}:${mm} UTC`;
+  $("time").value = Math.floor(minutes);
+  const sw = c => `<span class="swatch" style="background:rgb(${c})"></span> (${c.join(", ")})`;
+  $("state").innerHTML =
+    `Variant  ${variant}: ${v.name}. ${v.desc}\n` +
+    `Time     ${$("date").value} ${hh}:${mm} UTC   clock ×${speed}   drift ×${$("drift").value}   contrast ×${$("contrast").value}\n` +
+    `Sun      elevation ${s0.el.toFixed(1)}°   azimuth ${s0.az.toFixed(0)}°   phase: ${P.name}\n` +
+    `Field    mean ${(sum / (W * H)).toFixed(1)} / 255   brightest ${sw(peak)}`;
+}
+
+function tick(now) {
+  const dt = (now - last) / 1000; last = now;
+  minutes = (minutes + dt * speed / 60) % 1440;
+  driftClock += dt * parseFloat($("drift").value) * Math.max(1, speed / 60);
+  render();
+  requestAnimationFrame(tick);
+}
+
+function setVariant(k) {
+  variant = k;
+  const u = new URL(location.href); u.searchParams.set("variant", k); history.replaceState(null, "", u);
+  $("vlabel").textContent = `${k} (${VARIANTS[k].name})`;
+}
+const step = dir => setVariant(keys[(keys.indexOf(variant) + dir + keys.length) % keys.length]);
+$("prev").onclick = () => step(-1); $("next").onclick = () => step(1);
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+  if (e.key === "ArrowLeft") step(-1); if (e.key === "ArrowRight") step(1);
+});
+$("time").oninput = e => { minutes = +e.target.value; };
+document.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { speed = 0; minutes = findTimes()[b.dataset.jump]; });
+document.querySelectorAll("[data-speed]").forEach(b => b.onclick = () => { speed = +b.dataset.speed; if (speed === 1 && +$("drift").value === 0) $("drift").value = 1; });
+$("drift").oninput = () => { $("driftLabel").textContent = `×${$("drift").value}`; };
+$("drift").value = 1; $("driftLabel").textContent = "×1";
+$("contrast").oninput = () => { $("contrastLabel").textContent = `×${$("contrast").value}`; };
+setVariant(variant);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
