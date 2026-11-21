@@ -1,0 +1,4 @@
+result
+result-*
+/sink/matrix-display-sink
+/sink/*.o

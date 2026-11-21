@@ -1,0 +1,38 @@
+# The renderer. Unprivileged; everything except putting frames on the panels.
+{
+  lib,
+  buildGoModule,
+}:
+
+let
+  root = ../.;
+in
+buildGoModule {
+  pname = "matrix-display";
+  version = "0-unstable";
+
+  src = lib.fileset.toSource {
+    inherit root;
+    fileset = lib.fileset.unions [
+      (root + "/go.mod")
+      (lib.fileset.maybeMissing (root + "/go.sum"))
+      (root + "/cmd")
+      (lib.fileset.maybeMissing (root + "/internal"))
+    ];
+  };
+
+  # No dependencies yet. Set to a hash once go.sum exists.
+  vendorHash = null;
+
+  subPackages = [ "cmd/matrix-display" ];
+
+  env.CGO_ENABLED = 0;
+
+  meta = {
+    description = "Renders an ambient display for a 256x64 LED strip";
+    homepage = "https://github.com/corygyarmathy/matrix-display";
+    license = lib.licenses.gpl2Only;
+    platforms = lib.platforms.linux;
+    mainProgram = "matrix-display";
+  };
+}

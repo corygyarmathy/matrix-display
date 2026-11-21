@@ -1,0 +1,33 @@
+# The single formatting entry point. `nix fmt` formats the tree, and
+# `nix fmt -- --ci` (which the `formatting` flake check runs) fails on any
+# change. The binaries come from `formatter` in flake.nix; a formatter added
+# here needs its package added there too.
+
+excludes = ["LICENSE", "flake.lock"]
+
+[formatter.nix]
+command = "nixfmt"
+includes = ["*.nix"]
+
+# goimports before gofumpt, as the editor applies them.
+[formatter.goimports]
+command = "goimports"
+options = ["-w"]
+includes = ["*.go"]
+priority = 1
+
+[formatter.gofumpt]
+command = "gofumpt"
+options = ["-w"]
+includes = ["*.go"]
+priority = 2
+
+[formatter.clang-format]
+command = "clang-format"
+options = ["-i"]
+includes = ["*.cc", "*.h"]
+
+[formatter.prettier]
+command = "prettier"
+options = ["--write"]
+includes = ["*.md", "*.yaml", "*.yml", "*.json"]
