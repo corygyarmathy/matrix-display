@@ -1,5 +1,5 @@
-# The sink: the only process that touches the panels. `rpi-rgb-led-matrix` is
-# whatever the caller's pkgs provides - see overlays.default in flake.nix.
+# The sink: the only process that touches the panels. overlays.default in
+# flake.nix decides which `rpi-rgb-led-matrix` it gets.
 {
   lib,
   stdenv,

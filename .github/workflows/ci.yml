@@ -2,8 +2,8 @@ name: CI
 
 # `nix flake check` is the whole gate: it builds the renderer (running its Go
 # tests) and the sink on x86_64, cross-compiles both for aarch64, checks that
-# overlays.default uses the consumer's rpi-rgb-led-matrix, and checks
-# formatting.
+# overlays.default uses the consumer's rpi-rgb-led-matrix (or this repo's
+# pinned copy when there is none), and checks formatting.
 
 on:
   push:
