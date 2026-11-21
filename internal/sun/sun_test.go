@@ -59,7 +59,7 @@ func TestParseLocation(t *testing.T) {
 
 // A bad file's error never echoes its contents, which come from a secret.
 func TestParseLocationErrorsHideContents(t *testing.T) {
-	for _, in := range []string{"", "51.4769", "51.4769x, -0.0005", "91.25, 0", "51.4769, -0.0005, 7"} {
+	for _, in := range []string{"", "51.4769", "51.4769x, -0.0005", "91.25, 0", "51.4769, -0.0005, 7", "NaN, 0", "51.4769, nan"} {
 		_, err := parseLocation(strings.NewReader(in))
 		if err == nil {
 			t.Errorf("parseLocation(%q) succeeded, want an error", in)

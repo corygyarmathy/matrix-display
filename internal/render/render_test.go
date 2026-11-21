@@ -1,6 +1,7 @@
 package render
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -92,6 +93,88 @@ func TestStateClone(t *testing.T) {
 	if len(s.Sources) != 1 {
 		t.Error("changing a clone's Sources changed the original's")
 	}
+}
+
+// Live draws what Render draws, frame after frame, and allocates nothing per
+// frame: at 98 fps on the Pi, garbage means GC pauses, which show as jitter.
+func TestLiveMatchesRenderWithoutAllocating(t *testing.T) {
+	live := greenwich.Live()
+	pix := make([]uint16, width*height*3)
+	stale := State{Sources: map[string]Health{"a": {LastOK: noon.Add(-10 * time.Minute), StaleAfter: 5 * time.Minute}}}
+	for _, c := range []struct {
+		at time.Time
+		s  State
+	}{{noon, stale}, {midnight, State{}}, {dusk, stale}} {
+		live.RenderInto(pix, c.at, c.s)
+		if !slices.Equal(pix, greenwich.Render(c.at, c.s).Pix) {
+			t.Errorf("at %s, Live drew a different frame from Render", c.at.Format(time.Kitchen))
+		}
+	}
+	if n := testing.AllocsPerRun(10, func() { live.RenderInto(pix, noon, stale) }); n != 0 {
+		t.Errorf("RenderInto allocated %v times per frame, want 0", n)
+	}
+}
+
+// Clone must copy every field of State that holds memory, so that a snapshot
+// shares nothing with the sources. This fails when State gains such a field
+// that Clone doesn't copy, or one nested deeper than this test can check.
+func TestStateCloneSharesNothing(t *testing.T) {
+	var s State
+	v := reflect.ValueOf(&s).Elem()
+	var copied []int
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		switch f.Type.Kind() {
+		case reflect.Map:
+			if sharesMemory(f.Type.Key()) || sharesMemory(f.Type.Elem()) {
+				t.Errorf("State.%s holds memory inside its values: copy them in Clone, and teach this test to check it", f.Name)
+				continue
+			}
+			m := reflect.MakeMap(f.Type)
+			m.SetMapIndex(reflect.Zero(f.Type.Key()), reflect.Zero(f.Type.Elem()))
+			v.Field(i).Set(m)
+		case reflect.Slice:
+			if sharesMemory(f.Type.Elem()) {
+				t.Errorf("State.%s holds memory inside its elements: copy them in Clone, and teach this test to check it", f.Name)
+				continue
+			}
+			v.Field(i).Set(reflect.MakeSlice(f.Type, 1, 1))
+		default:
+			if sharesMemory(f.Type) {
+				t.Errorf("State.%s holds memory: copy it in Clone, and teach this test to check it", f.Name)
+			}
+			continue
+		}
+		copied = append(copied, i)
+	}
+	c := reflect.ValueOf(s.Clone())
+	for _, i := range copied {
+		if c.Field(i).UnsafePointer() == v.Field(i).UnsafePointer() {
+			t.Errorf("Clone shares State.%s with the original", v.Type().Field(i).Name)
+		}
+	}
+}
+
+// sharesMemory reports whether a copy of a value of type t can share memory
+// with the original. time.Time counts as a plain value: it points only to its
+// zone, which nothing changes.
+func sharesMemory(t reflect.Type) bool {
+	if t == reflect.TypeFor[time.Time]() {
+		return false
+	}
+	switch t.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Pointer, reflect.Interface, reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return true
+	case reflect.Array:
+		return sharesMemory(t.Elem())
+	case reflect.Struct:
+		for i := range t.NumField() {
+			if sharesMemory(t.Field(i).Type) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func meanLevel(f Frame) float64 {

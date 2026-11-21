@@ -22,6 +22,10 @@ import (
 // The preview's panel size: rpi01's, which the sink reports in serve.
 const previewWidth, previewHeight = 256, 64
 
+// maxPreviewFrames bounds a video, so that a mistyped --speed fails rather
+// than rendering for hours: a million frames is over nine hours at 30 fps.
+const maxPreviewFrames = 1_000_000
+
 // previewOptions is what preview renders.
 type previewOptions struct {
 	from, to   time.Time
@@ -45,6 +49,7 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	scale := flags.Int("scale", 4, "output pixels per panel pixel")
 	gap := flags.Int("gap", 1, "dark output pixels between panel pixels")
 	locationFile := flags.String("location", "", "a file holding the latitude and longitude (default: Greenwich)")
+	stale := flags.Bool("stale", false, "show a data source as stale throughout, to preview the marker")
 	outPath := flags.String("out", "", "the file to write: .mp4 or .gif (with ffmpeg), or .png for one frame at --from (required)")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -52,7 +57,7 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	if *outPath == "" {
 		return errors.New("preview: --out is required")
 	}
-	if *speed <= 0 || *fps <= 0 {
+	if !(*speed > 0) || !(*fps > 0) {
 		return errors.New("preview: --speed and --fps must be positive")
 	}
 	if *scale < 1 || *gap < 0 || *gap >= *scale {
@@ -75,15 +80,26 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	if !opts.to.After(opts.from) {
 		return errors.New("preview: --to must be after --from")
 	}
+	if step := opts.step(); step <= 0 || opts.to.Sub(opts.from)/step >= maxPreviewFrames {
+		return fmt.Errorf("preview: that would be over %d frames; raise --speed or lower --fps", maxPreviewFrames)
+	}
 	if *locationFile != "" {
 		if opts.location, err = sun.LoadLocation(*locationFile); err != nil {
 			return fmt.Errorf("preview: reading the location: %w", err)
 		}
 	}
 
+	if *stale {
+		// A source that has never fetched is stale at any time.
+		opts.state.Sources = map[string]render.Health{"fixture": {StaleAfter: 5 * time.Minute}}
+	}
+
 	switch ext := strings.ToLower(filepath.Ext(*outPath)); ext {
 	case ".png":
-		return writePreviewPNG(*outPath, opts)
+		if err := writePreviewPNG(*outPath, opts); err != nil {
+			return fmt.Errorf("preview: %w", err)
+		}
+		return nil
 	case ".mp4", ".gif":
 		start := time.Now()
 		n, err := writePreviewVideo(ctx, *outPath, opts)
@@ -111,10 +127,16 @@ func parsePreviewTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("can't read %q: use 2006-01-02T15:04 or RFC 3339", s)
 }
 
+// step is the simulated time between video frames. It can round to nothing
+// when --speed is tiny against --fps, so preview checks it.
+func (opts previewOptions) step() time.Duration {
+	return time.Duration(opts.speed / opts.fps * float64(time.Second))
+}
+
 // frameTimes returns the simulated time of every video frame, from opts.from
 // to opts.to inclusive.
 func (opts previewOptions) frameTimes() []time.Time {
-	step := time.Duration(opts.speed / opts.fps * float64(time.Second))
+	step := opts.step()
 	var times []time.Time
 	for t := opts.from; !t.After(opts.to); t = t.Add(step) {
 		times = append(times, t)
@@ -130,11 +152,11 @@ func writePreviewPNG(path string, opts previewOptions) error {
 	img := upscale(nil, opts.renderer().Render(opts.from, opts.state), opts.scale, opts.gap)
 	f, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("preview: %w", err)
+		return err
 	}
 	if err := png.Encode(f, img); err != nil {
 		f.Close()
-		return fmt.Errorf("preview: %w", err)
+		return err
 	}
 	return f.Close()
 }

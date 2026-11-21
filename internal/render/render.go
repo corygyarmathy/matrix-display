@@ -26,14 +26,20 @@ func (f Frame) At(x, y int) [3]uint16 {
 }
 
 // State is what the sources know, as the renderer sees it for one frame.
-// Sources replace its fields rather than change what they hold, so a shallow
-// copy with Sources cloned is a snapshot.
+// Sources replace its fields rather than change what they hold, so a copy
+// made by Clone is a snapshot the render goroutine can read while the sources
+// carry on.
+//
+// A field that holds memory (a map, a slice, a pointer, or a struct with one
+// inside) must be copied in Clone, or the snapshot shares it with the sources
+// and a source changing it in place races the renderer.
+// TestStateCloneSharesNothing fails until Clone copies it.
 type State struct {
 	// Sources is each source's health, by name.
 	Sources map[string]Health
 }
 
-// Clone returns a copy that shares nothing the sources change.
+// Clone returns a copy that shares no memory with s.
 func (s State) Clone() State {
 	s.Sources = maps.Clone(s.Sources)
 	return s
@@ -80,12 +86,34 @@ var layers = []layer{
 
 // Render draws the frame for time t and state s.
 func (r Renderer) Render(t time.Time, s State) Frame {
-	c := newCanvas(r.Width, r.Height)
-	sc := scene{t: t, sun: sun.At(t, r.Location), state: s}
-	for _, l := range layers {
-		l(c, sc)
+	f := Frame{Width: r.Width, Height: r.Height, Pix: make([]uint16, r.Width*r.Height*3)}
+	r.Live().RenderInto(f.Pix, t, s)
+	return f
+}
+
+// Live draws frame after frame for a live loop, reusing its memory: where
+// Render allocates two frames' worth on every call, Live allocates nothing
+// after the first. It draws what Render draws. It is not safe for concurrent
+// use.
+type Live struct {
+	r Renderer
+	c *canvas
+}
+
+// Live returns a Live that draws r's frames.
+func (r Renderer) Live() *Live {
+	return &Live{r: r, c: newCanvas(r.Width, r.Height)}
+}
+
+// RenderInto draws the frame for time t and state s into pix, which holds
+// Width × Height pixels in Frame's layout.
+func (l *Live) RenderInto(pix []uint16, t time.Time, s State) {
+	clear(l.c.pix)
+	sc := scene{t: t, sun: sun.At(t, l.r.Location), state: s}
+	for _, layer := range layers {
+		layer(l.c, sc)
 	}
-	return c.frame()
+	l.c.round(pix)
 }
 
 // canvas is a frame in floating point, from 0 to 1 per channel. Layers work
@@ -103,13 +131,11 @@ func (c *canvas) set(x, y int, rgb [3]float32) {
 	copy(c.pix[3*(y*c.width+x):][:3], rgb[:])
 }
 
-// frame rounds the canvas to 16 bits, clamping to [0, 1].
-func (c *canvas) frame() Frame {
-	pix := make([]uint16, len(c.pix))
+// round writes the canvas into pix at 16 bits, clamping to [0, 1].
+func (c *canvas) round(pix []uint16) {
 	for i, v := range c.pix {
 		pix[i] = uint16(math.Round(float64(min(max(v, 0), 1)) * 65535))
 	}
-	return Frame{Width: c.width, Height: c.height, Pix: pix}
 }
 
 // eightBit is a colour given in the library's 8-bit terms, as the spike's

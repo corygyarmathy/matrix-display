@@ -65,6 +65,54 @@ func TestPreviewPNG(t *testing.T) {
 	}
 }
 
+// --stale lights the stale marker in the bottom-right panel pixel.
+func TestPreviewStale(t *testing.T) {
+	corner := func(args ...string) color.RGBA64 {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "noon.png")
+		args = append([]string{"preview", "--from", "2025-06-21T12:00:00Z", "--scale", "1", "--gap", "0", "--out", path}, args...)
+		if err := run(context.Background(), args, new(strings.Builder)); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		img, err := png.Decode(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return color.RGBA64Model.Convert(img.At(previewWidth-1, previewHeight-1)).(color.RGBA64)
+	}
+	marker := color.RGBA64{48 * 257, 16 * 257, 0, 0xffff}
+	if got := corner("--stale"); got != marker {
+		t.Errorf("with --stale, the corner is %v, want the marker %v", got, marker)
+	}
+	if got := corner(); got == marker {
+		t.Error("without --stale, the corner shows the marker")
+	}
+}
+
+// The acceptance criterion from #6: a 24-hour MP4 in under a minute on a
+// laptop. It takes about 6s there; the margin absorbs slower CI machines.
+func TestPreviewDayUnderAMinute(t *testing.T) {
+	if testing.Short() || raceDetector {
+		t.Skip("renders a whole day, which takes too long under -short or -race")
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("no ffmpeg")
+	}
+	path := filepath.Join(t.TempDir(), "day.mp4")
+	start := time.Now()
+	if err := run(context.Background(), []string{"preview", "--from", "2025-06-21", "--out", path}, new(strings.Builder)); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took >= time.Minute {
+		t.Errorf("a 24-hour MP4 took %s, want under a minute", took.Round(time.Second))
+	}
+}
+
 func TestPreviewVideo(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("no ffmpeg")
@@ -92,6 +140,11 @@ func TestPreviewRejects(t *testing.T) {
 		{"preview", "--out", "x.png", "--from", "yesterday"},
 		{"preview", "--out", "x.mp4", "--from", "2025-06-21", "--to", "2025-06-20"},
 		{"preview", "--out", "x.png", "--gap", "4"},
+		{"preview", "--out", "x.mp4", "--speed", "NaN"},
+		// Steps that round to nothing, or too many frames, which would
+		// render forever.
+		{"preview", "--out", "x.mp4", "--speed", "1e-9"},
+		{"preview", "--out", "x.mp4", "--speed", "0.001"},
 	} {
 		var out strings.Builder
 		if err := run(context.Background(), args, &out); err == nil {

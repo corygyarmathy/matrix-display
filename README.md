@@ -30,7 +30,8 @@ nix run . -- preview --from 2025-06-21T21:00 --out dusk.png  # one frame
 ```
 
 Times without a zone are local. It uses Greenwich unless `--location` names a
-file. A monitor can't show how the panels render dark gradients, which are
+file, and `--stale` shows a data source as stale throughout, to preview the
+marker. A monitor can't show how the panels render dark gradients, which are
 near black and dithered by the sink, so check night palettes on the panels.
 
 ## Running on the panels

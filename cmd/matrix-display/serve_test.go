@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,6 +21,28 @@ func TestServeNeedsFlags(t *testing.T) {
 	for _, args := range [][]string{{"serve"}, {"serve", "--socket", "s"}, {"serve", "--location", "l"}} {
 		if err := run(context.Background(), args, &out); err == nil || !strings.Contains(err.Error(), "required") {
 			t.Errorf("run(%q) = %v, want an error about required flags", args, err)
+		}
+	}
+}
+
+// An --fps whose period isn't positive fails up front, rather than
+// panicking in time.NewTicker once the sink is reached.
+func TestFramePeriod(t *testing.T) {
+	if p, err := framePeriod(100); err != nil || p != 10*time.Millisecond {
+		t.Errorf("framePeriod(100) = %s, %v; want 10ms", p, err)
+	}
+	for _, fps := range []float64{0, -1, math.NaN(), math.Inf(1), 2e9} {
+		if p, err := framePeriod(fps); err == nil {
+			t.Errorf("framePeriod(%v) = %s, want an error", fps, p)
+		}
+	}
+	for _, cmd := range []string{"serve", "test-pattern"} {
+		args := []string{cmd, "--socket", "s", "--location", "l", "--fps", "2e9"}
+		if cmd == "test-pattern" {
+			args = []string{cmd, "--socket", "s", "--fps", "2e9"}
+		}
+		if err := run(context.Background(), args, new(strings.Builder)); err == nil || !strings.Contains(err.Error(), "--fps") {
+			t.Errorf("run(%q) = %v, want an error about --fps", args, err)
 		}
 	}
 }

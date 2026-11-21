@@ -123,7 +123,8 @@ func parseLocation(r io.Reader) (Location, error) {
 	if err1 != nil || err2 != nil {
 		return Location{}, errors.New("the latitude and longitude must be decimal numbers")
 	}
-	if math.Abs(lat) > 90 || math.Abs(lon) > 180 {
+	// Written so that NaN, which ParseFloat accepts, fails it too.
+	if !(math.Abs(lat) <= 90 && math.Abs(lon) <= 180) {
 		return Location{}, errors.New("the latitude must be within ±90 and the longitude within ±180")
 	}
 	return Location{Latitude: lat, Longitude: lon}, nil
