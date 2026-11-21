@@ -20,12 +20,30 @@ The design, and the map of the work, is
 
 ## Running the preview
 
-The preview renders simulated time to a video or image, with no panels needed.
-It lands with [#6](https://github.com/corygyarmathy/matrix-display/issues/6):
+The preview renders simulated time to a video or image, with fixture state and
+no panels, upscaled with gaps between the pixels so it reads like the strip:
 
 ```sh
-nix run . -- preview --from … --to … --speed … --out day.mp4
+nix run . -- preview --out day.mp4                    # today, 24 hours in a minute
+nix run . -- preview --from 2025-12-21 --speed 720 --out winter.gif
+nix run . -- preview --from 2025-06-21T21:00 --out dusk.png  # one frame
 ```
+
+Times without a zone are local. It uses Greenwich unless `--location` names a
+file. A monitor can't show how the panels render dark gradients, which are
+near black and dithered by the sink, so check night palettes on the panels.
+
+## Running on the panels
+
+```sh
+matrix-display serve --socket /run/led-matrix/frames.sock --location "$CREDENTIALS_DIRECTORY/location"
+```
+
+`--location` is a file holding the latitude and longitude, such as
+`51.4769, -0.0005`. On the host it comes from a secret (`LoadCredential=`):
+real coordinates never go in this repository, and the renderer never logs
+them. `serve` reconnects whenever the sink restarts. While any data source
+has been unreachable for a few minutes, the bottom-right pixel glows dim amber.
 
 ## Checking the panels
 

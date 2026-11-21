@@ -2,6 +2,7 @@
 {
   lib,
   buildGoModule,
+  ffmpeg-headless,
 }:
 
 let
@@ -28,6 +29,11 @@ buildGoModule {
   # cmd/matrix-display is a main package, so it is still the only binary.
 
   env.CGO_ENABLED = 0;
+
+  # For the preview's video tests. At run time, the preview finds ffmpeg on
+  # the PATH, so it stays out of the closure the Pi installs; the flake's
+  # default app adds it.
+  nativeCheckInputs = [ ffmpeg-headless ];
 
   meta = {
     description = "Renders an ambient display for a 256x64 LED strip";
