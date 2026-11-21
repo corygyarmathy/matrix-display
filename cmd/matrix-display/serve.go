@@ -30,6 +30,7 @@ func serve(ctx context.Context, args []string, out io.Writer) error {
 	socket := flags.String("socket", "", "the sink's socket (required)")
 	locationFile := flags.String("location", "", "a file holding the latitude and longitude (required)")
 	fps := flags.Float64("fps", defaultFPS, "frames per second")
+	art := artFlags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -40,28 +41,33 @@ func serve(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
-	loc, err := sun.LoadLocation(*locationFile)
-	if err != nil {
+	r := render.Renderer{}
+	if r.Art, err = art(); err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+	if r.Location, err = sun.LoadLocation(*locationFile); err != nil {
 		return fmt.Errorf("serve: reading the location: %w", err)
 	}
 
 	// The sources (#8, #9, #10) start here, each with source.Run.
 	store := new(source.Store)
 
-	stream(ctx, *socket, period, loc, store.Snapshot)
+	stream(ctx, *socket, period, r, store.Snapshot)
 	return nil
 }
 
 // stream renders a frame every period and sends it to the sink at socket,
-// until ctx ends. When the sink isn't there, or goes away, it dials again.
-func stream(ctx context.Context, socket string, period time.Duration, loc sun.Location, state func() render.State) {
+// until ctx ends, with r's location and art at the size the sink reports.
+// When the sink isn't there, or goes away, it dials again.
+func stream(ctx context.Context, socket string, period time.Duration, r render.Renderer, state func() render.State) {
 	wait := minRedial
 	reported := false
 	for {
 		w, err := sinkproto.Dial(socket)
 		if err == nil {
 			slog.Info("connected to the sink", "width", w.Width(), "height", w.Height())
-			live := render.Renderer{Width: w.Width(), Height: w.Height(), Location: loc}.Live()
+			r.Width, r.Height = w.Width(), w.Height()
+			live := r.Live()
 			err = sendFrames(ctx, w, period, func(pix []uint16) {
 				live.RenderInto(pix, time.Now(), state())
 			})

@@ -34,6 +34,35 @@ file, and `--stale` shows a data source as stale throughout, to preview the
 marker. A monitor can't show how the panels render dark gradients, which are
 near black and dithered by the sink, so check night palettes on the panels.
 
+In a video, the art moves `--motion` times faster than real time (by default
+`--speed / 60`): at a day a minute, the noise reshapes about once a second
+rather than twice a frame. That is not a fair test of how fast it drifts, so
+judge that in real time, at `--speed 1`, or on the panels.
+
+## The art
+
+The art is two colours of the hour mixed by soft noise that drifts across the
+whole strip, warmer and brighter at the sun's end. Its palette follows the
+sun's elevation from indigo at night, through rose and violet in twilight and
+amber in golden hour, to a soft blue by day. The art direction is
+[#4](https://github.com/corygyarmathy/matrix-display/issues/4). `serve` and
+`preview` take the same flags for it:
+
+- `--east left|right`: the end of the strip that faces east (default `left`).
+- `--ceiling 0.4`: the brightest it gets, at noon, as a fraction of full
+  brightness, as the library's `--led-brightness` would set it. The night
+  field doesn't change with it.
+- `--reshape 24s` and `--drift 1`: how long the noise takes to change shape,
+  and how many pixels a second it moves sideways.
+
+Golden images of the art at dawn, noon, dusk and night are in
+`internal/render/testdata/golden`, and the tests check against them. After a
+change to the art that is meant, look at the change, then rewrite them:
+
+```sh
+go test ./internal/render -run Golden -update
+```
+
 ## Running on the panels
 
 ```sh

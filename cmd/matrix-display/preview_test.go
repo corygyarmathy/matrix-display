@@ -141,6 +141,12 @@ func TestPreviewRejects(t *testing.T) {
 		{"preview", "--out", "x.mp4", "--from", "2025-06-21", "--to", "2025-06-20"},
 		{"preview", "--out", "x.png", "--gap", "4"},
 		{"preview", "--out", "x.mp4", "--speed", "NaN"},
+		{"preview", "--out", "x.mp4", "--motion", "-1"},
+		{"preview", "--out", "x.png", "--east", "north"},
+		{"preview", "--out", "x.png", "--ceiling", "0"},
+		{"preview", "--out", "x.png", "--ceiling", "1.5"},
+		{"preview", "--out", "x.png", "--reshape", "0s"},
+		{"preview", "--out", "x.png", "--drift", "Inf"},
 		// Steps that round to nothing, or too many frames, which would
 		// render forever.
 		{"preview", "--out", "x.mp4", "--speed", "1e-9"},
@@ -150,6 +156,21 @@ func TestPreviewRejects(t *testing.T) {
 		if err := run(context.Background(), args, &out); err == nil {
 			t.Errorf("run(%q) succeeded, want an error", args)
 		}
+	}
+}
+
+// A video's art moves --motion times faster than real time, not --speed
+// times: at a day a minute, once per second of video rather than twice a
+// frame.
+func TestPreviewMotion(t *testing.T) {
+	opts := previewOptions{speed: 1440, motion: 24, art: render.DefaultArt}
+	art := opts.videoRenderer().Art
+	if art.Reshape != 60*render.DefaultArt.Reshape || art.Drift != render.DefaultArt.Drift/60 {
+		t.Errorf("at --speed 1440 and --motion 24, the art reshapes every %s and drifts %g px/s, want %s and %g",
+			art.Reshape, art.Drift, 60*render.DefaultArt.Reshape, render.DefaultArt.Drift/60)
+	}
+	if opts.renderer().Art != render.DefaultArt {
+		t.Error("a still's art is not the real art")
 	}
 }
 

@@ -34,8 +34,10 @@ func TestStaleSourceShowsAndClears(t *testing.T) {
 		defer cancel()
 		const width, height = 16, 4
 		r := render.Renderer{Width: width, Height: height, Location: sun.Greenwich}
-		corner := func(store *Store) [3]uint16 {
-			return r.Render(time.Now(), store.Snapshot()).At(width-1, height-1)
+		// Whether the corner differs from the art alone, which moves.
+		marked := func(store *Store) bool {
+			now := time.Now()
+			return r.Render(now, store.Snapshot()).At(width-1, height-1) != r.Render(now, render.State{}).At(width-1, height-1)
 		}
 
 		store := new(Store)
@@ -43,17 +45,19 @@ func TestStaleSourceShowsAndClears(t *testing.T) {
 		src.down.Store(true)
 		go Run(ctx, store, Config{Name: "fake", Interval: 30 * time.Second, StaleAfter: 3 * time.Minute}, src)
 		synctest.Wait()
-		normal := corner(store)
-
-		time.Sleep(2 * time.Minute)
-		synctest.Wait()
-		if got := corner(store); got != normal {
-			t.Fatalf("down for 2 of 3 minutes: the corner is %v, want %v", got, normal)
+		if marked(store) {
+			t.Fatal("down from the start: the corner shows the marker")
 		}
 
 		time.Sleep(2 * time.Minute)
 		synctest.Wait()
-		if got := corner(store); got == normal {
+		if marked(store) {
+			t.Fatal("down for 2 of 3 minutes: the corner shows the marker")
+		}
+
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		if !marked(store) {
 			t.Fatal("down for 4 of 3 minutes: the corner shows no marker")
 		}
 
@@ -61,8 +65,8 @@ func TestStaleSourceShowsAndClears(t *testing.T) {
 		src.down.Store(false)
 		time.Sleep(30 * time.Second)
 		synctest.Wait()
-		if got := corner(store); got != normal {
-			t.Fatalf("after recovering, the corner is %v, want %v", got, normal)
+		if marked(store) {
+			t.Fatal("after recovering, the corner still shows the marker")
 		}
 	})
 }
