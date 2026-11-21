@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/corygyarmathy/matrix-display/internal/sinkproto"
 )
@@ -28,15 +27,16 @@ func testPattern(ctx context.Context, args []string, out io.Writer) error {
 	flags.SetOutput(out)
 	socket := flags.String("socket", "", "the sink's socket (required)")
 	brightness := flags.Float64("brightness", 3, "the gradient's peak, in percent")
-	fps := flags.Float64("fps", 98, "frames per second")
+	fps := flags.Float64("fps", defaultFPS, "frames per second")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *socket == "" {
 		return errors.New("test-pattern: --socket is required")
 	}
-	if *fps <= 0 {
-		return errors.New("test-pattern: --fps must be positive")
+	period, err := framePeriod(*fps)
+	if err != nil {
+		return fmt.Errorf("test-pattern: %w", err)
 	}
 
 	w, err := sinkproto.Dial(*socket)
@@ -47,20 +47,15 @@ func testPattern(ctx context.Context, args []string, out io.Writer) error {
 	width, height := w.Width(), w.Height()
 	fmt.Fprintf(out, "sending a %dx%d test pattern to %s; interrupt to stop\n", width, height, *socket)
 
-	ticker := time.NewTicker(time.Duration(float64(time.Second) / *fps))
-	defer ticker.Stop()
-	pix := make([]uint16, width*height*3)
-	for frame := 0; ; frame++ {
+	frame := 0
+	err = sendFrames(ctx, w, period, func(pix []uint16) {
 		drawTestPattern(pix, width, height, frame, *brightness/100)
-		if err := w.WriteFrame(pix); err != nil {
-			return fmt.Errorf("test-pattern: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
+		frame++
+	})
+	if err != nil {
+		return fmt.Errorf("test-pattern: %w", err)
 	}
+	return nil
 }
 
 // drawTestPattern fills pix for the given frame number. level is the
