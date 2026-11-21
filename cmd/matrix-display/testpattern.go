@@ -14,8 +14,8 @@ import (
 // The spike's (#2) gradient colour, in 8-bit values.
 var gradientColour = [3]float64{60, 30, 160}
 
-// testPattern sends a pattern to the sink until ctx ends, for checking the
-// panels by eye (#5):
+// testPattern sends a pattern to the sink, at the size the sink reports, until
+// ctx ends, for checking the panels by eye (#5):
 //
 //   - the top half has a bar sweeping left to right, whose edges tear if
 //     frames aren't swapped on vsync;
@@ -27,8 +27,6 @@ func testPattern(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("test-pattern", flag.ContinueOnError)
 	flags.SetOutput(out)
 	socket := flags.String("socket", "", "the sink's socket (required)")
-	width := flags.Int("width", 256, "panel width in pixels")
-	height := flags.Int("height", 64, "panel height in pixels")
 	brightness := flags.Float64("brightness", 3, "the gradient's peak, in percent")
 	fps := flags.Float64("fps", 98, "frames per second")
 	if err := flags.Parse(args); err != nil {
@@ -37,8 +35,8 @@ func testPattern(ctx context.Context, args []string, out io.Writer) error {
 	if *socket == "" {
 		return errors.New("test-pattern: --socket is required")
 	}
-	if *width <= 0 || *height <= 0 || *fps <= 0 {
-		return errors.New("test-pattern: --width, --height and --fps must be positive")
+	if *fps <= 0 {
+		return errors.New("test-pattern: --fps must be positive")
 	}
 
 	w, err := sinkproto.Dial(*socket)
@@ -46,13 +44,14 @@ func testPattern(ctx context.Context, args []string, out io.Writer) error {
 		return fmt.Errorf("test-pattern: %w", err)
 	}
 	defer w.Close()
-	fmt.Fprintf(out, "sending a %dx%d test pattern to %s; interrupt to stop\n", *width, *height, *socket)
+	width, height := w.Width(), w.Height()
+	fmt.Fprintf(out, "sending a %dx%d test pattern to %s; interrupt to stop\n", width, height, *socket)
 
 	ticker := time.NewTicker(time.Duration(float64(time.Second) / *fps))
 	defer ticker.Stop()
-	pix := make([]uint16, *width**height*3)
+	pix := make([]uint16, width*height*3)
 	for frame := 0; ; frame++ {
-		drawTestPattern(pix, *width, *height, frame, *brightness/100)
+		drawTestPattern(pix, width, height, frame, *brightness/100)
 		if err := w.WriteFrame(pix); err != nil {
 			return fmt.Errorf("test-pattern: %w", err)
 		}

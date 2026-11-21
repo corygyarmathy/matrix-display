@@ -41,6 +41,12 @@ const std::vector<uint8_t> kExample = {
     0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00,
 };
 
+// PROTOCOL.md's panel message example: 256 × 64.
+const std::vector<uint8_t> kPanelExample = {
+    0x4d, 0x44, 0x53, 0x46, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+};
+
 ParseResult Parse(const std::vector<uint8_t> &message, int width, int height,
                   sink::Header *header) {
   return sink::ParseFrame(message.data(), message.size(), width, height,
@@ -75,6 +81,12 @@ void TestParseGoodFrame() {
   const uint16_t want[6] = {65535, 0, 0, 1, 2, 3};
   CHECK(std::memcmp(pixels, want, sizeof want) == 0);
   CHECK(Encode(5, {65535, 0, 0, 1, 2, 3}) == kExample);
+}
+
+void TestEncodePanel() {
+  std::vector<uint8_t> panel(sink::kPanelMessageSize);
+  sink::EncodePanel(256, 64, panel.data());
+  CHECK(panel == kPanelExample);
 }
 
 void TestParseShortFrame() {
@@ -262,6 +274,50 @@ bool Shows(const sink::FakeDisplay &display, uint8_t level) {
   return true;
 }
 
+// Reads the panel message the sink sends on connecting.
+std::vector<uint8_t> ReceivePanel(int fd) {
+  std::vector<uint8_t> panel(sink::kPanelMessageSize + 1);
+  const ssize_t n = recv(fd, panel.data(), panel.size(), MSG_DONTWAIT);
+  panel.resize(n < 0 ? 0 : static_cast<size_t>(n));
+  return panel;
+}
+
+// Collects what is written to stderr while it lives.
+class CaptureStderr {
+public:
+  CaptureStderr() {
+    std::fflush(stderr);
+    saved_ = dup(STDERR_FILENO);
+    if (pipe2(pipe_, O_NONBLOCK) != 0) {
+      std::perror("pipe2");
+      std::exit(1);
+    }
+    dup2(pipe_[1], STDERR_FILENO);
+  }
+  ~CaptureStderr() {
+    Take();
+    dup2(saved_, STDERR_FILENO);
+    close(saved_);
+    close(pipe_[0]);
+    close(pipe_[1]);
+  }
+  // What was written since the last call.
+  std::string Take() {
+    std::fflush(stderr);
+    std::string out;
+    char buf[256];
+    ssize_t n;
+    while ((n = read(pipe_[0], buf, sizeof buf)) > 0) {
+      out.append(buf, static_cast<size_t>(n));
+    }
+    return out;
+  }
+
+private:
+  int saved_;
+  int pipe_[2];
+};
+
 double MeanShown(const sink::FakeDisplay &display) {
   double sum = 0;
   for (uint8_t v : display.shown()) {
@@ -293,6 +349,16 @@ void TestSinkStartsBlank() {
   CHECK(f.sink.Idle());
   f.sink.Refresh(f.t0);
   CHECK(f.display.shows() == 1); // Nothing new to show.
+}
+
+void TestSinkSendsPanelSize() {
+  Fixture f;
+  const int client = Connect(f.address);
+  f.sink.Refresh(f.t0);
+  std::vector<uint8_t> want(sink::kPanelMessageSize);
+  sink::EncodePanel(kWidth, kHeight, want.data());
+  CHECK(ReceivePanel(client) == want);
+  close(client);
 }
 
 void TestSinkShowsLatestFrame() {
@@ -338,6 +404,28 @@ void TestSinkDropsBadMessages() {
   close(client);
 }
 
+// The first bad message is logged at once, and the rest of a burst once the
+// interval has passed, even when no more arrive.
+void TestSinkLogsEveryDrop() {
+  Fixture f;
+  const int client = Connect(f.address);
+  CaptureStderr captured;
+  for (int i = 0; i < 3; ++i) {
+    Send(client, std::vector<uint8_t>(8, 0xff));
+  }
+  f.sink.Refresh(f.t0);
+  CHECK(captured.Take().find("dropped 3 bad message(s)") != std::string::npos);
+  Send(client, std::vector<uint8_t>(8, 0xff));
+  Send(client, std::vector<uint8_t>(9, 0xff));
+  f.sink.Refresh(f.t0 + milliseconds{10});
+  CHECK(captured.Take().find("dropped") == std::string::npos);
+  f.sink.Refresh(f.t0 + std::chrono::seconds{5});
+  const std::string later = captured.Take();
+  CHECK(later.find("dropped 2 bad message(s)") != std::string::npos);
+  CHECK(later.find("(9 bytes)") != std::string::npos);
+  close(client);
+}
+
 void TestSinkFadesOnDisconnect() {
   sink::Config config;
   Fixture f;
@@ -358,6 +446,35 @@ void TestSinkFadesOnDisconnect() {
   f.sink.Refresh(gone + config.fade);
   CHECK(Shows(f.display, 0));
   CHECK(f.sink.Idle());
+}
+
+// The client's last frame and its disconnect arrive before the same refresh:
+// the fade still starts at the disconnect, not a timeout after the frame.
+void TestSinkFadesOnDisconnectAfterLastFrame() {
+  sink::Config config;
+  Fixture f;
+  const int client = Connect(f.address);
+  f.sink.Refresh(f.t0);
+  CHECK(ReceivePanel(client).size() == sink::kPanelMessageSize);
+  Send(client, Solid(0, 200));
+  close(client);
+  const auto gone = f.t0 + milliseconds{10};
+  f.sink.Refresh(gone);
+  CHECK(Shows(f.display, 200));
+  f.sink.Refresh(gone + config.fade);
+  CHECK(Shows(f.display, 0));
+  CHECK(f.sink.Idle());
+}
+
+// A client that sends a frame and closes before the sink accepts it still has
+// its frame shown, though the panel message can't reach it.
+void TestSinkReadsClientThatAlreadyLeft() {
+  Fixture f;
+  const int client = Connect(f.address);
+  Send(client, Solid(0, 70));
+  close(client);
+  f.sink.Refresh(f.t0);
+  CHECK(Shows(f.display, 70));
 }
 
 void TestSinkFadesWhenClientStopsSending() {
@@ -391,7 +508,8 @@ void TestSinkNewClientReplacesOld() {
   const int second = Connect(f.address);
   f.sink.Refresh(f.t0 + milliseconds{10});
 
-  // The sink closed the first connection.
+  // The sink closed the first connection, after its panel message.
+  CHECK(ReceivePanel(first).size() == sink::kPanelMessageSize);
   uint8_t byte;
   CHECK(recv(first, &byte, 1, MSG_DONTWAIT) == 0);
 
@@ -408,6 +526,7 @@ void TestSinkNewClientReplacesOld() {
 
 int main() {
   TestParseGoodFrame();
+  TestEncodePanel();
   TestParseShortFrame();
   TestParseBadMagic();
   TestParseWrongVersion();
@@ -417,9 +536,13 @@ int main() {
   TestDitherPhasesDiffer();
   TestDitherGain();
   TestSinkStartsBlank();
+  TestSinkSendsPanelSize();
   TestSinkShowsLatestFrame();
   TestSinkDropsBadMessages();
+  TestSinkLogsEveryDrop();
   TestSinkFadesOnDisconnect();
+  TestSinkFadesOnDisconnectAfterLastFrame();
+  TestSinkReadsClientThatAlreadyLeft();
   TestSinkFadesWhenClientStopsSending();
   TestSinkNewClientReplacesOld();
   if (failures > 0) {

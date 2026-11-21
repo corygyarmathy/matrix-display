@@ -13,6 +13,12 @@ constexpr uint8_t kMagic[4] = {'M', 'D', 'S', 'F'};
 constexpr uint32_t kVersion = 1;
 constexpr size_t kHeaderSize = 16;
 
+// The panel message: what the sink sends a client as soon as it connects.
+constexpr size_t kPanelMessageSize = 16;
+
+// Writes the panel message for a width × height display to `out`.
+void EncodePanel(int width, int height, uint8_t out[kPanelMessageSize]);
+
 // The size of a whole message for a width × height frame.
 constexpr size_t MessageSize(int width, int height) {
   return kHeaderSize + static_cast<size_t>(width) * height * 3 * 2;

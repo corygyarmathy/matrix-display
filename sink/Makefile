@@ -21,7 +21,7 @@ CXXFLAGS += -std=c++17 -Wall -Wextra $(WERROR)
 MATRIX_CFLAGS = $(patsubst -I%,-isystem %,$(shell $(PKG_CONFIG) --cflags rgbmatrix))
 MATRIX_LIBS = $(shell $(PKG_CONFIG) --libs rgbmatrix)
 
-CORE = activation.o dither.o protocol.o sink.o
+CORE = activation.o dither.o protocol.o signals.o sink.o
 
 matrix-display-sink: main.o $(CORE)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(MATRIX_LIBS) $(LDLIBS)
