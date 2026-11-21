@@ -4,6 +4,7 @@
 package render
 
 import (
+	"image"
 	"maps"
 	"time"
 
@@ -22,6 +23,19 @@ type Frame struct {
 func (f Frame) At(x, y int) [3]uint16 {
 	p := f.Pix[3*(y*f.Width+x):]
 	return [3]uint16{p[0], p[1], p[2]}
+}
+
+// RGBA64 returns the frame as an opaque image, at its full 16 bits.
+func (f Frame) RGBA64() *image.RGBA64 {
+	img := image.NewRGBA64(image.Rect(0, 0, f.Width, f.Height))
+	for i := range f.Width * f.Height {
+		o, p := img.Pix[8*i:8*i+8], f.Pix[3*i:3*i+3]
+		o[0], o[1] = byte(p[0]>>8), byte(p[0])
+		o[2], o[3] = byte(p[1]>>8), byte(p[1])
+		o[4], o[5] = byte(p[2]>>8), byte(p[2])
+		o[6], o[7] = 0xff, 0xff
+	}
+	return img
 }
 
 // State is what the sources know, as the renderer sees it for one frame.
@@ -65,7 +79,7 @@ type Renderer struct {
 	Width, Height int
 	Location      sun.Location
 	// Art is how the art layer looks and moves: the zero Art is
-	// DefaultArt.
+	// DefaultArt, and a zero Ceiling or Reshape is DefaultArt's.
 	Art Art
 }
 
@@ -105,7 +119,7 @@ func (r Renderer) Live() *Live {
 		// worked out first, into the scene. The presence fade (#8) will
 		// come last, after the overlays.
 		layers: []layer{
-			newArt(r.Art, r.Width, r.Height).draw,
+			newArtLayer(r.Art, r.Width, r.Height).draw,
 			staleMarker,
 		},
 	}

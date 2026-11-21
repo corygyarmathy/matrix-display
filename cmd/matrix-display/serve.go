@@ -41,33 +41,33 @@ func serve(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
-	r := render.Renderer{}
-	if r.Art, err = art(); err != nil {
+	a, err := art()
+	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
-	if r.Location, err = sun.LoadLocation(*locationFile); err != nil {
+	loc, err := sun.LoadLocation(*locationFile)
+	if err != nil {
 		return fmt.Errorf("serve: reading the location: %w", err)
 	}
 
 	// The sources (#8, #9, #10) start here, each with source.Run.
 	store := new(source.Store)
 
-	stream(ctx, *socket, period, r, store.Snapshot)
+	stream(ctx, *socket, period, loc, a, store.Snapshot)
 	return nil
 }
 
 // stream renders a frame every period and sends it to the sink at socket,
-// until ctx ends, with r's location and art at the size the sink reports.
-// When the sink isn't there, or goes away, it dials again.
-func stream(ctx context.Context, socket string, period time.Duration, r render.Renderer, state func() render.State) {
+// until ctx ends, for loc with art a, at the size the sink reports. When the
+// sink isn't there, or goes away, it dials again.
+func stream(ctx context.Context, socket string, period time.Duration, loc sun.Location, a render.Art, state func() render.State) {
 	wait := minRedial
 	reported := false
 	for {
 		w, err := sinkproto.Dial(socket)
 		if err == nil {
 			slog.Info("connected to the sink", "width", w.Width(), "height", w.Height())
-			r.Width, r.Height = w.Width(), w.Height()
-			live := r.Live()
+			live := render.Renderer{Width: w.Width(), Height: w.Height(), Location: loc, Art: a}.Live()
 			err = sendFrames(ctx, w, period, func(pix []uint16) {
 				live.RenderInto(pix, time.Now(), state())
 			})

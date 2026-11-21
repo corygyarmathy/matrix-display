@@ -6,12 +6,14 @@ import (
 	"time"
 )
 
-// Art is how the art layer looks and moves. The zero Art is DefaultArt.
+// Art is how the art layer looks and moves. The zero Art is DefaultArt, and
+// in any other Art a zero Ceiling or Reshape is DefaultArt's.
 type Art struct {
 	// Ceiling is the brightest the field gets, at noon, as a fraction of
 	// full colour value: the scale of the library's --led-brightness, which
 	// the protocol has no field for. The night field is fixed, so the
-	// ceiling dims or brightens the daylight hours only.
+	// ceiling dims or brightens the daylight hours only. Below about 0.16,
+	// the night field's brightest, the day is dimmer than the night.
 	Ceiling float64
 	// EastRight puts east, where the sun rises, at the right-hand end of the
 	// strip. Which end it is depends on which way the desk faces.
@@ -26,6 +28,10 @@ type Art struct {
 // DefaultArt is the art direction's (#4): a noon ceiling of 40%, the noise
 // reshaping every 24 s and drifting at 1 px/s, with east on the left.
 var DefaultArt = Art{Ceiling: 0.4, Reshape: 24 * time.Second, Drift: 1}
+
+// paletteCeiling is the ceiling the keyframes' colours are chosen at. Other
+// ceilings scale the day's colours from it.
+const paletteCeiling = 0.4
 
 // Validate reports whether the art can be drawn.
 func (a Art) Validate() error {
@@ -56,7 +62,7 @@ const artStep = 4
 
 // keyframe is the field at one solar elevation: two colours the noise mixes
 // between, and a warmer, brighter one it is pulled towards at the sun's end.
-// Colours are in the library's 8-bit terms, at DefaultArt's ceiling.
+// Colours are in the library's 8-bit terms, at paletteCeiling.
 type keyframe struct {
 	elevation    float64
 	lo, hi, glow [3]float32
@@ -94,7 +100,7 @@ var keyframes = func() []keyframe {
 }()
 
 // palette returns the field's colours at the sun's elevation, in linear
-// light, at DefaultArt's ceiling.
+// light, at paletteCeiling.
 func palette(elevation float64) (lo, hi, glow [3]float32) {
 	i := 0
 	for i < len(keyframes)-2 && elevation > keyframes[i+1].elevation {
@@ -105,9 +111,9 @@ func palette(elevation float64) (lo, hi, glow [3]float32) {
 	return lerp3(a.lo, b.lo, t), lerp3(a.hi, b.hi, t), lerp3(a.glow, b.glow, t)
 }
 
-// art draws the field. It keeps the grid the field is computed on between
-// frames, so that drawing allocates nothing.
-type art struct {
+// artLayer draws the field. It keeps the grid the field is computed on
+// between frames, so that drawing allocates nothing.
+type artLayer struct {
 	Art
 	// cols × rows grid points, artStep pixels apart, covering the canvas.
 	cols, rows int
@@ -116,19 +122,25 @@ type art struct {
 	row        [][3]float32 // One row of the canvas's, by grid column.
 }
 
-func newArt(a Art, width, height int) *art {
+func newArtLayer(a Art, width, height int) *artLayer {
 	if a == (Art{}) {
 		a = DefaultArt
 	}
+	if a.Ceiling == 0 {
+		a.Ceiling = DefaultArt.Ceiling
+	}
+	if a.Reshape == 0 {
+		a.Reshape = DefaultArt.Reshape
+	}
 	cols, rows := (width-1)/artStep+2, (height-1)/artStep+2
-	return &art{Art: a, cols: cols, rows: rows, grid: make([][3]float32, cols*rows), glow: make([]float32, cols), row: make([][3]float32, cols)}
+	return &artLayer{Art: a, cols: cols, rows: rows, grid: make([][3]float32, cols*rows), glow: make([]float32, cols), row: make([][3]float32, cols)}
 }
 
 // draw fills the canvas with two colours of the hour, mixed by noise that
 // drifts and reshapes over time, pulled warmer and brighter towards the
 // sun's end of the strip. It is one seamless field: nothing in it knows
 // where the panels meet.
-func (a *art) draw(c *canvas, sc scene) {
+func (a *artLayer) draw(c *canvas, sc scene) {
 	lo, hi, glow := palette(sc.sun.Elevation)
 
 	// The sun's position along the strip, from 0 at the east end to 1 at
@@ -146,7 +158,7 @@ func (a *art) draw(c *canvas, sc scene) {
 
 	// The ceiling scales the day, not the night, which is set in absolute
 	// terms by what the panels show smoothly.
-	scale := float32(1 + (a.Ceiling/DefaultArt.Ceiling-1)*smoothstep(-18, 22, sc.sun.Elevation))
+	scale := float32(1 + (a.Ceiling/paletteCeiling-1)*smoothstep(-18, 22, sc.sun.Elevation))
 
 	// Time, in noise units: the field reshapes once per unit of z.
 	s := float64(sc.t.UnixNano()) / 1e9
@@ -202,7 +214,6 @@ func valueNoise(x, y, z float64) float64 {
 	xi, yi, zi := int64(xf), int64(yf), int64(zf)
 	u, v, w := smooth(x-xf), smooth(y-yf), smooth(z-zf)
 	corner := func(dx, dy, dz int64) float64 { return hash(xi+dx, yi+dy, zi+dz) }
-	lerp := func(a, b, t float64) float64 { return a + (b-a)*t }
 	return lerp(
 		lerp(lerp(corner(0, 0, 0), corner(1, 0, 0), u), lerp(corner(0, 1, 0), corner(1, 1, 0), u), v),
 		lerp(lerp(corner(0, 0, 1), corner(1, 0, 1), u), lerp(corner(0, 1, 1), corner(1, 1, 1), u), v),
@@ -230,6 +241,8 @@ func smooth(t float64) float64 { return t * t * (3 - 2*t) }
 func toLinear(v float32) float32   { return v * v }
 func fromLinear(v float32) float32 { return float32(math.Sqrt(float64(max(v, 0)))) }
 
+func lerp[T float32 | float64](a, b, t T) T { return a + (b-a)*t }
+
 func lerp3(a, b [3]float32, t float32) [3]float32 {
-	return [3]float32{a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t, a[2] + (b[2]-a[2])*t}
+	return [3]float32{lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)}
 }

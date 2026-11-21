@@ -83,6 +83,9 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	if opts.art, err = art(); err != nil {
 		return fmt.Errorf("preview: %w", err)
 	}
+	if _, err := opts.videoRenderer(); err != nil {
+		return fmt.Errorf("preview: %w", err)
+	}
 	now := time.Now()
 	if *from == "" {
 		opts.from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
@@ -167,13 +170,22 @@ func (opts previewOptions) renderer() render.Renderer {
 }
 
 // videoRenderer draws a video's frames, with the art moving opts.motion
-// times faster than real time in the video, not opts.speed times.
-func (opts previewOptions) videoRenderer() render.Renderer {
+// times faster than real time in the video, not opts.speed times. It fails
+// when --motion is so far from --speed that the art can't be drawn.
+func (opts previewOptions) videoRenderer() (render.Renderer, error) {
 	r := opts.renderer()
 	slow := opts.speed / opts.motion
-	r.Art.Reshape = time.Duration(min(float64(r.Art.Reshape)*slow, math.MaxInt64))
+	// float64(math.MaxInt64) is 2^63, one past the largest Duration.
+	if reshape := float64(r.Art.Reshape) * slow; reshape >= math.MaxInt64 {
+		r.Art.Reshape = math.MaxInt64
+	} else {
+		r.Art.Reshape = time.Duration(reshape)
+	}
 	r.Art.Drift /= slow
-	return r
+	if err := r.Art.Validate(); err != nil {
+		return render.Renderer{}, fmt.Errorf("--motion %g at --speed %g: %w", opts.motion, opts.speed, err)
+	}
+	return r, nil
 }
 
 func writePreviewPNG(path string, opts previewOptions) error {
@@ -208,6 +220,10 @@ func writePreviewVideo(ctx context.Context, path string, opts previewOptions) (i
 	}
 	args = append(args, path)
 
+	r, err := opts.videoRenderer()
+	if err != nil {
+		return 0, err
+	}
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
@@ -218,7 +234,6 @@ func writePreviewVideo(ctx context.Context, path string, opts previewOptions) (i
 		return 0, err
 	}
 
-	r := opts.videoRenderer()
 	var img *image.RGBA64
 	times := opts.frameTimes()
 	var writeErr error
@@ -245,28 +260,22 @@ func upscale(dst *image.RGBA64, f render.Frame, scale, gap int) *image.RGBA64 {
 	if dst == nil {
 		dst = image.NewRGBA64(image.Rect(0, 0, f.Width*scale, f.Height*scale))
 	}
+	src := f.RGBA64()
+	dark := []byte{0, 0, 0, 0, 0, 0, 0xff, 0xff}
 	for y := range f.Height {
 		for x := range f.Width {
-			p := f.At(x, y)
+			p := src.Pix[src.PixOffset(x, y):][:8]
 			for dy := range scale {
 				row := dst.Pix[(y*scale+dy)*dst.Stride:]
 				for dx := range scale {
 					v := p
 					if dx >= scale-gap || dy >= scale-gap {
-						v = [3]uint16{}
+						v = dark
 					}
-					putRGBA64(row[(x*scale+dx)*8:][:8], v)
+					copy(row[(x*scale+dx)*8:][:8], v)
 				}
 			}
 		}
 	}
 	return dst
-}
-
-// putRGBA64 writes an opaque pixel in image.RGBA64's big-endian layout.
-func putRGBA64(o []byte, p [3]uint16) {
-	o[0], o[1] = byte(p[0]>>8), byte(p[0])
-	o[2], o[3] = byte(p[1]>>8), byte(p[1])
-	o[4], o[5] = byte(p[2]>>8), byte(p[2])
-	o[6], o[7] = 0xff, 0xff
 }
