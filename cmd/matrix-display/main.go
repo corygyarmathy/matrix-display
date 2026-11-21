@@ -24,7 +24,11 @@ const usage = `usage: matrix-display <command>
 
 commands:
   help          show this message
+  serve         render frames and send them to the sink
+  preview       render simulated time to a video or image, without the sink
   test-pattern  send a test pattern to the sink, for checking the panels
+
+Run a command with -h for its flags.
 `
 
 // run is main without the process: it takes the arguments after the program
@@ -35,6 +39,10 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	switch args[0] {
+	case "serve":
+		return serve(ctx, args[1:], out)
+	case "preview":
+		return preview(ctx, args[1:], out)
 	case "test-pattern":
 		return testPattern(ctx, args[1:], out)
 	}

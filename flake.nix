@@ -83,6 +83,29 @@
         }
       );
 
+      # `nix run . -- preview …`: the renderer with ffmpeg on the PATH, for
+      # the preview's videos.
+      apps = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          withFfmpeg = pkgs.writeShellApplication {
+            name = "matrix-display";
+            runtimeInputs = [ pkgs.ffmpeg-headless ];
+            text = ''
+              exec ${lib.getExe pkgs.matrix-display} "$@"
+            '';
+          };
+        in
+        {
+          default = {
+            type = "app";
+            program = lib.getExe withFfmpeg;
+            meta.description = "The renderer, with ffmpeg for the preview";
+          };
+        }
+      );
+
       checks = forAllSystems (
         system:
         let
@@ -197,6 +220,7 @@
               pkgs.matrix-display-sink
             ];
             packages = with pkgs; [
+              ffmpeg-headless
               gopls
               gotools
               clang-tools
