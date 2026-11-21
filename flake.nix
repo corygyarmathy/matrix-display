@@ -166,6 +166,13 @@
             };
           });
 
+          # The timing test the package skips under -short: #6's 24-hour
+          # preview in under a minute, on the machine CI runs this on.
+          preview-speed = pkgs.matrix-display.overrideAttrs {
+            pname = "preview-speed";
+            checkFlags = [ "-run=^TestPreviewDayUnderAMinute$" ];
+          };
+
           formatting =
             pkgs.runCommand "formatting"
               {
