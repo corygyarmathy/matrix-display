@@ -107,6 +107,13 @@
           };
           fetchedLibrary = fallbackPkgs.callPackage ./nix/rpi-rgb-led-matrix.nix { };
           fallbackSinkInputs = map (d: d.outPath) fallbackPkgs.matrix-display-sink.buildInputs;
+
+          fakeSink = pkgs.matrix-display-sink.overrideAttrs {
+            pname = "matrix-display-sink-fake";
+            buildFlags = [ "matrix-display-sink-fake" ];
+            installTargets = [ "install-fake" ];
+            doCheck = false;
+          };
         in
         # Every package builds (and the renderer's tests run in its build).
         builtins.removeAttrs self.packages.${system} [ "default" ]
@@ -126,6 +133,15 @@
             assert lib.assertMsg (builtins.elem fetchedLibrary.outPath fallbackSinkInputs)
               "matrix-display-sink does not fall back to ./nix/rpi-rgb-led-matrix.nix";
             pkgs.runCommand "overlay-falls-back-to-fetched-library" { } "touch $out";
+
+          # The renderer's writer against the sink's own code, built with a
+          # fake display: frames sent by internal/sinkproto arrive unchanged.
+          sink-roundtrip = pkgs.matrix-display.overrideAttrs (old: {
+            pname = "sink-roundtrip";
+            env = old.env // {
+              MATRIX_DISPLAY_FAKE_SINK = lib.getExe' fakeSink "matrix-display-sink-fake";
+            };
+          });
 
           formatting =
             pkgs.runCommand "formatting"

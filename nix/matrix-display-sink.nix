@@ -25,6 +25,10 @@ stdenv.mkDerivation {
   makeFlags = [ "PREFIX=${placeholder "out"}" ];
   enableParallelBuilding = true;
 
+  # The unit tests (sink/test.cc). Skipped when cross-compiling.
+  doCheck = true;
+  checkTarget = "check";
+
   meta = {
     description = "Puts frames from matrix-display on HUB75 LED panels";
     homepage = "https://github.com/corygyarmathy/matrix-display";

@@ -24,7 +24,8 @@ buildGoModule {
   # No dependencies yet. Set to a hash once go.sum exists.
   vendorHash = null;
 
-  subPackages = [ "cmd/matrix-display" ];
+  # No subPackages: it would also limit the tests to those packages. Only
+  # cmd/matrix-display is a main package, so it is still the only binary.
 
   env.CGO_ENABLED = 0;
 
