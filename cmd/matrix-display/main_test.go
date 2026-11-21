@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -8,7 +9,7 @@ import (
 func TestRunHelp(t *testing.T) {
 	for _, args := range [][]string{nil, {"help"}, {"-h"}, {"--help"}} {
 		var out strings.Builder
-		if err := run(args, &out); err != nil {
+		if err := run(context.Background(), args, &out); err != nil {
 			t.Fatalf("run(%q): %v", args, err)
 		}
 		if !strings.HasPrefix(out.String(), "usage:") {
@@ -19,7 +20,7 @@ func TestRunHelp(t *testing.T) {
 
 func TestRunUnknownCommand(t *testing.T) {
 	var out strings.Builder
-	if err := run([]string{"nope"}, &out); err == nil {
+	if err := run(context.Background(), []string{"nope"}, &out); err == nil {
 		t.Fatal("run(nope) succeeded, want an error")
 	}
 }

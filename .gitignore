@@ -2,3 +2,6 @@ result
 result-*
 /sink/matrix-display-sink
 /sink/*.o
+/sink/matrix-display-sink-fake
+/sink/sink-test
+/sink/*.d
