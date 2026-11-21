@@ -41,9 +41,10 @@ public:
   // Refreshes until *stop is set (from a signal handler).
   void Run(const volatile std::sig_atomic_t *stop);
 
-  // One step of Run: accepts any new client, reads whatever it sent, and
-  // shows the latest frame, dithered and faded as of `now`. Blocks in
-  // Display::Show unless Idle() was already true and nothing arrived.
+  // One step of Run: accepts any new client and sends it the panel message,
+  // reads whatever the client sent, and shows the latest frame, dithered and
+  // faded as of `now`. Blocks in Display::Show unless Idle() was already true
+  // and nothing arrived.
   void Refresh(Clock::time_point now);
 
   // True when the panels are black and stay black until a client sends a
@@ -57,8 +58,10 @@ public:
 private:
   void Accept();
   void Read(Clock::time_point now);
-  void Disconnect(Clock::time_point now, const char *why);
-  void LogDrop(Clock::time_point now, const char *why, size_t length);
+  void Disconnect(const char *why);
+  // Logs the bad messages counted since the last log, unless that was less
+  // than a few seconds ago.
+  void LogDrops(Clock::time_point now);
   uint32_t Gain(Clock::time_point now) const;
 
   const int listen_fd_;
@@ -86,6 +89,8 @@ private:
 
   // Bad messages are logged at most every few seconds, with a count.
   size_t dropped_ = 0;
+  const char *last_drop_why_ = "";
+  size_t last_drop_length_ = 0;
   Clock::time_point next_drop_log_;
 };
 

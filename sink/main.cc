@@ -14,13 +14,10 @@
 
 #include "activation.h"
 #include "led-matrix.h"
+#include "signals.h"
 #include "sink.h"
 
 namespace {
-
-volatile std::sig_atomic_t stop = 0;
-
-void OnSignal(int) { stop = 1; }
 
 // The panels, drawn off-screen and swapped in on vsync so frames never tear.
 class MatrixDisplay : public sink::Display {
@@ -93,10 +90,7 @@ int main(int argc, char *argv[]) {
   }
   matrix->SetBrightness(100);
 
-  struct sigaction action = {};
-  action.sa_handler = OnSignal;
-  sigaction(SIGTERM, &action, nullptr);
-  sigaction(SIGINT, &action, nullptr);
+  const volatile std::sig_atomic_t *stop = sink::StopOnSignals();
 
   {
     MatrixDisplay display(matrix);
@@ -105,7 +99,7 @@ int main(int argc, char *argv[]) {
     sink::Sink sink(listen_fd, &display, seed);
     std::fprintf(stderr, "showing frames on %dx%d pixels\n", display.width(),
                  display.height());
-    sink.Run(&stop);
+    sink.Run(stop);
   }
 
   matrix->Clear();

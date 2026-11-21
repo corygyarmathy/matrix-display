@@ -13,13 +13,10 @@
 
 #include "activation.h"
 #include "fake_display.h"
+#include "signals.h"
 #include "sink.h"
 
 namespace {
-
-volatile std::sig_atomic_t stop = 0;
-
-void OnSignal(int) { stop = 1; }
 
 bool ParseDimension(const char *arg, const char *name, int *out) {
   const size_t n = std::strlen(name);
@@ -63,15 +60,12 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  struct sigaction action = {};
-  action.sa_handler = OnSignal;
-  sigaction(SIGTERM, &action, nullptr);
-  sigaction(SIGINT, &action, nullptr);
+  const volatile std::sig_atomic_t *stop = sink::StopOnSignals();
 
   // About the panels' refresh rate.
   sink::FakeDisplay display(width, height, std::chrono::milliseconds{10});
   sink::Sink sink(fd, &display, /*seed=*/1);
   sink.set_on_frame(WriteAll);
-  sink.Run(&stop);
+  sink.Run(stop);
   return 0;
 }

@@ -45,6 +45,7 @@ void Sink::Run(const volatile std::sig_atomic_t *stop) {
 void Sink::Refresh(Clock::time_point now) {
   Accept();
   Read(now);
+  LogDrops(now);
 
   const uint32_t gain = has_frame_ ? Gain(now) : 0;
   if (gain == 0) {
@@ -80,6 +81,16 @@ void Sink::Accept() {
       }
       return;
     }
+    // Tell the client the panels' size before anything else. The connection
+    // is new, so its buffer has room and this doesn't block. If the client has
+    // already gone, this fails, but whatever it sent is still read.
+    uint8_t panel[kPanelMessageSize];
+    EncodePanel(display_->width(), display_->height(), panel);
+    if (send(fd, panel, sizeof panel, MSG_DONTWAIT | MSG_NOSIGNAL) !=
+        static_cast<ssize_t>(sizeof panel)) {
+      std::fprintf(stderr, "sending the panel size: %s\n",
+                   std::strerror(errno));
+    }
     if (client_fd_ >= 0) {
       std::fprintf(stderr, "a new client replaces the current one\n");
       close(client_fd_);
@@ -98,6 +109,7 @@ void Sink::Read(Clock::time_point now) {
   const int width = display_->width();
   const int height = display_->height();
   bool got_frame = false;
+  bool disconnected = false;
   for (;;) {
     // MSG_TRUNC makes recv return the message's real length, even when it
     // didn't fit.
@@ -108,14 +120,16 @@ void Sink::Read(Clock::time_point now) {
         continue;
       }
       if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        Disconnect(now, std::strerror(errno));
+        Disconnect(std::strerror(errno));
+        disconnected = true;
       }
       break;
     }
     if (n == 0) {
       // The end of the connection. (A zero-length message reads the same,
       // and isn't a frame either.)
-      Disconnect(now, "client disconnected");
+      Disconnect("client disconnected");
+      disconnected = true;
       break;
     }
     const size_t length = static_cast<size_t>(n);
@@ -123,7 +137,9 @@ void Sink::Read(Clock::time_point now) {
     const ParseResult result =
         ParseFrame(received_.data(), length, width, height, &header);
     if (result != ParseResult::kOk) {
-      LogDrop(now, Describe(result), length);
+      ++dropped_;
+      last_drop_why_ = Describe(result);
+      last_drop_length_ = length;
       continue;
     }
     if (sequence_known_ && header.sequence != next_sequence_) {
@@ -144,23 +160,25 @@ void Sink::Read(Clock::time_point now) {
     has_frame_ = true;
     fade_start_ = now + config_.timeout;
   }
+  // After the frame, which may have been the client's last.
+  if (disconnected) {
+    fade_start_ = std::min(fade_start_, now);
+  }
 }
 
-void Sink::Disconnect(Clock::time_point now, const char *why) {
+void Sink::Disconnect(const char *why) {
   std::fprintf(stderr, "%s\n", why);
   close(client_fd_);
   client_fd_ = -1;
-  fade_start_ = std::min(fade_start_, now);
 }
 
-void Sink::LogDrop(Clock::time_point now, const char *why, size_t length) {
-  ++dropped_;
-  if (now < next_drop_log_) {
+void Sink::LogDrops(Clock::time_point now) {
+  if (dropped_ == 0 || now < next_drop_log_) {
     return;
   }
   std::fprintf(stderr,
                "dropped %zu bad message(s); the latest was %s (%zu bytes)\n",
-               dropped_, why, length);
+               dropped_, last_drop_why_, last_drop_length_);
   dropped_ = 0;
   next_drop_log_ = now + kDropLogInterval;
 }

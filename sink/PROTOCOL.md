@@ -14,10 +14,42 @@ binds a socket itself.
 The sink serves one client. A new connection replaces the current one, which
 the sink closes.
 
-## Message
+All integers are little-endian.
 
-One message per frame: a 16-byte header, then the pixels. All integers are
-little-endian.
+## Panel message
+
+As soon as it accepts a connection, the sink sends the client one 16-byte
+message with the panels' size. It is the only message the sink sends.
+
+| Offset | Size | Field   | Value                         |
+| -----: | ---: | ------- | ----------------------------- |
+|      0 |    4 | magic   | the bytes `MDSF`              |
+|      4 |    4 | version | `1`                           |
+|      8 |    4 | width   | the panels' width, in pixels  |
+|     12 |    4 | height  | the panels' height, in pixels |
+
+`width` and `height` are the size of the sink's canvas, as its `--led-*` flags
+configure it after any pixel mapper: 256 × 64 on rpi01. A client that gets a
+version it doesn't speak should close the connection rather than send frames
+the sink would drop.
+
+A client reads the panel message before it closes the connection. If it
+closes with the panel message unread, the sink sees a reset instead of its
+last frames.
+
+### Example
+
+256 × 64:
+
+```text
+4d 44 53 46  01 00 00 00  00 01 00 00  40 00 00 00
+```
+
+Both ends test against these bytes.
+
+## Frame message
+
+One message per frame: a 16-byte header, then the pixels.
 
 | Offset | Size | Field    | Value                                     |
 | -----: | ---: | -------- | ----------------------------------------- |
@@ -27,10 +59,9 @@ little-endian.
 |     16 |    — | pixels   | `width × height × 3` unsigned 16-bit ints |
 
 The pixels are rows top to bottom, each row left to right, each pixel red,
-green, blue. `width` and `height` are the panels' size as the sink's `--led-*`
-flags configure it (256 × 64 on rpi01, so a message is 98,320 bytes). They are
-not in the header: the sink knows them, and rejects a message of any other
-size.
+green, blue. `width` and `height` are the ones the panel message gave (so on
+rpi01 a frame message is 98,320 bytes). They are not in the header, and the
+sink rejects a message of any other size.
 
 A value of 65535 is full brightness. The values are what the library's 8-bit
 input would be, scaled by 257, so brightness and colour correction are already

@@ -31,7 +31,9 @@ nix run . -- preview --from … --to … --speed … --out day.mp4
 
 With the sink running, `test-pattern` sends a sweeping bar (which tears if
 frames aren't swapped on vsync) above a dark gradient (which bands if dithering
-isn't working). Interrupting it should fade the panels to black.
+isn't working), at the size the sink reports. Interrupting it should fade the
+panels to black. Stop the renderer first: the sink serves one client, and each
+new connection replaces the last.
 
 ```sh
 matrix-display test-pattern --socket /run/led-matrix/frames.sock --brightness 3
