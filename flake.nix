@@ -18,10 +18,12 @@
       ];
       forAllSystems = f: lib.genAttrs systems f;
 
-      # The library revision this repo fetches for its own builds and CI. Never
-      # part of overlays.default.
-      ciLibrary = final: _prev: {
-        rpi-rgb-led-matrix = final.callPackage ./nix/rpi-rgb-led-matrix.nix { };
+      # This repo's own builds treat the sink's warnings as errors. Consumers
+      # don't: a newer compiler on their side must not break their rebuild.
+      strictSink = _final: prev: {
+        matrix-display-sink = prev.matrix-display-sink.overrideAttrs (old: {
+          makeFlags = old.makeFlags ++ [ "WERROR=-Werror" ];
+        });
       };
 
       pkgsFor =
@@ -29,30 +31,26 @@
         import nixpkgs {
           inherit system;
           overlays = [
-            ciLibrary
             self.overlays.default
+            strictSink
           ];
         };
 
       # aarch64 built on x86_64, for CI: seconds rather than minutes under QEMU.
-      pkgsCrossFor =
-        system:
-        import nixpkgs {
-          localSystem = system;
-          crossSystem = "aarch64-linux";
-          overlays = [
-            ciLibrary
-            self.overlays.default
-          ];
-        };
+      # pkgsCross keeps pkgsFor's overlays.
+      pkgsCrossFor = system: (pkgsFor system).pkgsCross.aarch64-multiplatform;
     in
     {
-      # What dotfiles consumes. The sink takes `rpi-rgb-led-matrix` from the
-      # pkgs this is applied to, so it links against the consumer's pinned
-      # library, and fails to evaluate on a pkgs without one.
+      # What dotfiles consumes. The sink links the `rpi-rgb-led-matrix` of the
+      # pkgs this is applied to, so on rpi01 it uses dotfiles' pinned library.
+      # A pkgs without one (nixpkgs has none) gets ./nix/rpi-rgb-led-matrix.nix,
+      # which is also what this repo's own builds and CI use.
       overlays.default = final: _prev: {
         matrix-display = final.callPackage ./nix/matrix-display.nix { };
-        matrix-display-sink = final.callPackage ./nix/matrix-display-sink.nix { };
+        matrix-display-sink = final.callPackage ./nix/matrix-display-sink.nix {
+          rpi-rgb-led-matrix =
+            final.rpi-rgb-led-matrix or (final.callPackage ./nix/rpi-rgb-led-matrix.nix { });
+        };
       };
 
       packages = forAllSystems (
@@ -101,6 +99,14 @@
             ];
           };
           sinkInputs = map (d: d.outPath) consumerPkgs.matrix-display-sink.buildInputs;
+
+          # Stock nixpkgs, which has no rpi-rgb-led-matrix of its own.
+          fallbackPkgs = import nixpkgs {
+            inherit system;
+            overlays = [ self.overlays.default ];
+          };
+          fetchedLibrary = fallbackPkgs.callPackage ./nix/rpi-rgb-led-matrix.nix { };
+          fallbackSinkInputs = map (d: d.outPath) fallbackPkgs.matrix-display-sink.buildInputs;
         in
         # Every package builds (and the renderer's tests run in its build).
         builtins.removeAttrs self.packages.${system} [ "default" ]
@@ -112,6 +118,14 @@
             assert lib.assertMsg (builtins.elem consumerLibrary.outPath sinkInputs)
               "matrix-display-sink does not link the consumer's rpi-rgb-led-matrix";
             pkgs.runCommand "overlay-uses-consumer-library" { } "touch $out";
+
+          overlay-falls-back-to-fetched-library =
+            assert lib.assertMsg (
+              !(fallbackPkgs ? rpi-rgb-led-matrix)
+            ) "nixpkgs now has rpi-rgb-led-matrix, so this check no longer tests the fallback";
+            assert lib.assertMsg (builtins.elem fetchedLibrary.outPath fallbackSinkInputs)
+              "matrix-display-sink does not fall back to ./nix/rpi-rgb-led-matrix.nix";
+            pkgs.runCommand "overlay-falls-back-to-fetched-library" { } "touch $out";
 
           formatting =
             pkgs.runCommand "formatting"
@@ -160,6 +174,8 @@
         in
         {
           default = pkgs.mkShell {
+            # `make -C sink` fails on warnings here, as CI does.
+            WERROR = "-Werror";
             inputsFrom = [
               pkgs.matrix-display
               pkgs.matrix-display-sink

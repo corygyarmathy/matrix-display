@@ -6,9 +6,12 @@ PKG_CONFIG ?= pkg-config
 PREFIX ?= /usr/local
 
 CXXFLAGS ?= -O2
+# Off by default, so a newer compiler's warnings never break a consumer's
+# build; this repo's own builds, CI and dev shell set WERROR=-Werror.
+WERROR ?=
 # The library's headers are included as system headers: they trip -Wextra
 # (unused parameters), and -Werror is for this code, not upstream's.
-CXXFLAGS += -std=c++17 -Wall -Wextra -Werror \
+CXXFLAGS += -std=c++17 -Wall -Wextra $(WERROR) \
 	$(patsubst -I%,-isystem %,$(shell $(PKG_CONFIG) --cflags rgbmatrix))
 LDLIBS += $(shell $(PKG_CONFIG) --libs rgbmatrix)
 

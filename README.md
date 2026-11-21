@@ -37,7 +37,8 @@ nix fmt
 ```
 
 Consumers use `overlays.default`, which adds both packages and links the sink
-against the consumer's own `rpi-rgb-led-matrix`.
+against the consumer's own `rpi-rgb-led-matrix`, or this repo's pinned copy
+when the consumer has none.
 
 ## Licence
 

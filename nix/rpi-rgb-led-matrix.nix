@@ -1,7 +1,8 @@
-# hzeller/rpi-rgb-led-matrix, the library only, for this repo's own builds and
-# CI. Consumers never get this: overlays.default takes the library from the
-# pkgs it is applied to, so rpi01 links against the one dotfiles pins
-# (packages/rpi-rgb-led-matrix there, which also builds the demos and tools).
+# hzeller/rpi-rgb-led-matrix, the library only. overlays.default links the sink
+# against the library of the pkgs it is applied to, so rpi01 uses the one
+# dotfiles pins (packages/rpi-rgb-led-matrix there, which also builds the demos
+# and tools). This copy is the fallback for a pkgs without one, which includes
+# this repo's own builds and CI.
 #
 # Keep `rev` near dotfiles' pin so CI compiles against the API rpi01 has.
 {
