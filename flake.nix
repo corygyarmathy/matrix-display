@@ -64,15 +64,25 @@
           inherit (pkgs) matrix-display matrix-display-sink;
           default = pkgs.matrix-display;
         }
-        // lib.optionalAttrs (system == "x86_64-linux") (
-          let
-            cross = pkgsCrossFor system;
-          in
-          {
-            matrix-display-cross = cross.matrix-display;
-            matrix-display-sink-cross = cross.matrix-display-sink;
-          }
-        )
+        // lib.optionalAttrs (system == "x86_64-linux") {
+          # The renderer is pure Go, so the cached native toolchain builds it
+          # for arm64 with GOARCH alone. Going through pkgsCross instead builds
+          # a cross Go from source, which cache.nixos.org does not hold: about
+          # four minutes on every CI run. Its tests run in the native build.
+          matrix-display-cross = pkgs.matrix-display.overrideAttrs (old: {
+            env = old.env // {
+              GOARCH = "arm64";
+            };
+            doCheck = false;
+            # buildGoModule only does this for a pkgsCross build.
+            postBuild = ''
+              mv $GOPATH/bin/linux_arm64/* $GOPATH/bin/
+              rmdir $GOPATH/bin/linux_arm64
+            '';
+          });
+          # The sink needs a real cross C++ toolchain, which is cached.
+          matrix-display-sink-cross = (pkgsCrossFor system).matrix-display-sink;
+        }
       );
 
       checks = forAllSystems (
