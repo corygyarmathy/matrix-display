@@ -35,6 +35,12 @@ buildGoModule {
   # default app adds it.
   nativeCheckInputs = [ ffmpeg-headless ];
 
+  # The tests are a correctness gate for every build of the package, including
+  # a consumer's aarch64 build under QEMU. A wall-clock bound is not
+  # correctness, and emulation misses it, so -short skips the preview's
+  # timing test here. The flake's `preview-speed` check runs it natively.
+  checkFlags = [ "-short" ];
+
   meta = {
     description = "Renders an ambient display for a 256x64 LED strip";
     homepage = "https://github.com/corygyarmathy/matrix-display";
