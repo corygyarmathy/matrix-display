@@ -11,7 +11,7 @@ import (
 // function it returns after parsing them.
 func artFlags(flags *flag.FlagSet) func() (render.Art, error) {
 	d := render.DefaultArt
-	ceiling := flags.Float64("ceiling", d.Ceiling, "the brightest the art gets, at noon, as a fraction of full brightness")
+	ceiling := flags.Float64("ceiling", d.Ceiling, "the brightest the art gets, at noon, as a fraction of full brightness (below about 0.16, the day is dimmer than the night)")
 	east := flags.String("east", "left", "the end of the strip that faces east: left or right")
 	reshape := flags.Duration("reshape", d.Reshape, "how long the art's noise takes to change shape")
 	drift := flags.Float64("drift", d.Drift, "how fast the art drifts sideways, in pixels per second")

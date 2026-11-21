@@ -4,6 +4,7 @@ import (
 	"context"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,6 +143,8 @@ func TestPreviewRejects(t *testing.T) {
 		{"preview", "--out", "x.png", "--gap", "4"},
 		{"preview", "--out", "x.mp4", "--speed", "NaN"},
 		{"preview", "--out", "x.mp4", "--motion", "-1"},
+		// So fast the reshape time rounds to nothing.
+		{"preview", "--out", "x.mp4", "--speed", "1", "--motion", "1e11"},
 		{"preview", "--out", "x.png", "--east", "north"},
 		{"preview", "--out", "x.png", "--ceiling", "0"},
 		{"preview", "--out", "x.png", "--ceiling", "1.5"},
@@ -164,13 +167,27 @@ func TestPreviewRejects(t *testing.T) {
 // frame.
 func TestPreviewMotion(t *testing.T) {
 	opts := previewOptions{speed: 1440, motion: 24, art: render.DefaultArt}
-	art := opts.videoRenderer().Art
+	r, err := opts.videoRenderer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	art := r.Art
 	if art.Reshape != 60*render.DefaultArt.Reshape || art.Drift != render.DefaultArt.Drift/60 {
 		t.Errorf("at --speed 1440 and --motion 24, the art reshapes every %s and drifts %g px/s, want %s and %g",
 			art.Reshape, art.Drift, 60*render.DefaultArt.Reshape, render.DefaultArt.Drift/60)
 	}
 	if opts.renderer().Art != render.DefaultArt {
 		t.Error("a still's art is not the real art")
+	}
+}
+
+// A reshape time too long for a Duration is the longest one, not one that
+// wraps negative.
+func TestPreviewMotionClamps(t *testing.T) {
+	r, err := previewOptions{speed: 1e12, motion: 1, art: render.DefaultArt}.videoRenderer()
+	if err != nil || r.Art.Reshape != math.MaxInt64 {
+		t.Errorf("at --speed 1e12 and --motion 1, the art reshapes every %s (%v), want %s",
+			r.Art.Reshape, err, time.Duration(math.MaxInt64))
 	}
 }
 

@@ -19,6 +19,5 @@ func staleMarker(c *canvas, sc scene) {
 
 // smoothstep rises smoothly from 0 at edge0 to 1 at edge1.
 func smoothstep(edge0, edge1, x float64) float64 {
-	t := math.Max(0, math.Min(1, (x-edge0)/(edge1-edge0)))
-	return t * t * (3 - 2*t)
+	return smooth(math.Max(0, math.Min(1, (x-edge0)/(edge1-edge0))))
 }

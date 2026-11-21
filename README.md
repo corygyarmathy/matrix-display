@@ -51,7 +51,8 @@ amber in golden hour, to a soft blue by day. The art direction is
 - `--east left|right`: the end of the strip that faces east (default `left`).
 - `--ceiling 0.4`: the brightest it gets, at noon, as a fraction of full
   brightness, as the library's `--led-brightness` would set it. The night
-  field doesn't change with it.
+  field doesn't change with it, so below about 0.16, the night field's
+  brightest, the day is dimmer than the night.
 - `--reshape 24s` and `--drift 1`: how long the noise takes to change shape,
   and how many pixels a second it moves sideways.
 

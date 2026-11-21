@@ -81,16 +81,15 @@ func TestStreamReconnects(t *testing.T) {
 	defer l.Close()
 
 	// Art that barely moves, so the frames can be checked against one.
-	r := render.Renderer{Location: sun.Greenwich, Art: render.Art{Ceiling: 0.4, Reshape: 1000 * time.Hour}}
+	art := render.Art{Reshape: 1000 * time.Hour}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		stream(ctx, path, time.Millisecond, r, func() render.State { return render.State{} })
+		stream(ctx, path, time.Millisecond, sun.Greenwich, art, func() render.State { return render.State{} })
 	}()
 
-	r.Width, r.Height = width, height
-	want := r.Render(time.Now(), render.State{})
+	want := render.Renderer{Width: width, Height: height, Location: sun.Greenwich, Art: art}.Render(time.Now(), render.State{})
 	for conn := range 2 {
 		c, err := l.AcceptUnix()
 		if err != nil {

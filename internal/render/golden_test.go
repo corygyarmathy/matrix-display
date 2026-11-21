@@ -3,7 +3,6 @@ package render
 import (
 	"flag"
 	"fmt"
-	"image"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -61,15 +60,7 @@ func TestGolden(t *testing.T) {
 }
 
 func writeGolden(path string, f Frame) error {
-	img := image.NewRGBA64(image.Rect(0, 0, f.Width, f.Height))
-	for i := range f.Width * f.Height {
-		o := img.Pix[8*i:]
-		for c := range 3 {
-			v := f.Pix[3*i+c]
-			o[2*c], o[2*c+1] = byte(v>>8), byte(v)
-		}
-		o[6], o[7] = 0xff, 0xff
-	}
+	img := f.RGBA64()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

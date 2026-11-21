@@ -110,7 +110,8 @@ func TestPaletteSaturation(t *testing.T) {
 
 // The two colours are far enough apart that the field visibly varies at
 // every hour: about three times the spread of the art direction
-// prototype's first palettes, which measure about 0.06 here by day.
+// prototype's first palettes, which measure about 0.06 here by day, and
+// twice it in golden hour, which spreads further anyway.
 func TestArtVariesAtEveryHour(t *testing.T) {
 	for h := range 24 {
 		// Over ten minutes, since one frame can fall mostly in one colour.
@@ -119,8 +120,8 @@ func TestArtVariesAtEveryHour(t *testing.T) {
 			at := equinoxNight.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
 			mean += spread(greenwich.Render(at, State{})) / 10
 		}
-		if mean < 0.12 {
-			t.Errorf("at %02d:00, the field's colours spread %.2f of its level, want at least 0.12", h, mean)
+		if mean < 0.14 {
+			t.Errorf("at %02d:00, the field's colours spread %.2f of its level, want at least 0.14", h, mean)
 		}
 	}
 }
@@ -168,6 +169,16 @@ func TestNoonCeiling(t *testing.T) {
 	dim.Art.Ceiling = 0.1
 	if d := maxDiff(dim.Render(equinoxNight, State{}), greenwich.Render(equinoxNight, State{})); d > 0 {
 		t.Errorf("a lower ceiling changed the night field by up to %d", d)
+	}
+}
+
+// An Art with only some fields set takes DefaultArt's Ceiling and Reshape
+// for the rest, rather than drawing black.
+func TestPartialArtDefaults(t *testing.T) {
+	partial := greenwich
+	partial.Art = Art{Drift: DefaultArt.Drift}
+	if d := maxDiff(partial.Render(equinoxNoon, State{}), greenwich.Render(equinoxNoon, State{})); d > 0 {
+		t.Errorf("Art{Drift: %g} differs from DefaultArt by up to %d", DefaultArt.Drift, d)
 	}
 }
 
