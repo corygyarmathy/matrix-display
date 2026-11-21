@@ -31,7 +31,7 @@ func TestRenderIsPure(t *testing.T) {
 	}
 }
 
-// The placeholder brightens as the sun rises, and is never black.
+// The art brightens as the sun rises, and is never black.
 func TestRenderFollowsTheSun(t *testing.T) {
 	var last float64
 	for _, at := range []time.Time{midnight, dusk, noon} {

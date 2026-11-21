@@ -25,6 +25,16 @@ func TestServeNeedsFlags(t *testing.T) {
 	}
 }
 
+// Bad art flags fail up front, before the location is read.
+func TestServeRejectsArt(t *testing.T) {
+	for _, flag := range [][]string{{"--east", "up"}, {"--ceiling", "-0.1"}, {"--reshape", "-1s"}} {
+		args := append([]string{"serve", "--socket", "s", "--location", "/nonexistent"}, flag...)
+		if err := run(context.Background(), args, new(strings.Builder)); err == nil || strings.Contains(err.Error(), "location") {
+			t.Errorf("run(%q) = %v, want an error about the art", args, err)
+		}
+	}
+}
+
 // An --fps whose period isn't positive fails up front, rather than
 // panicking in time.NewTicker once the sink is reached.
 func TestFramePeriod(t *testing.T) {
@@ -70,14 +80,17 @@ func TestStreamReconnects(t *testing.T) {
 	}
 	defer l.Close()
 
+	// Art that barely moves, so the frames can be checked against one.
+	r := render.Renderer{Location: sun.Greenwich, Art: render.Art{Ceiling: 0.4, Reshape: 1000 * time.Hour}}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		stream(ctx, path, time.Millisecond, sun.Greenwich, func() render.State { return render.State{} })
+		stream(ctx, path, time.Millisecond, r, func() render.State { return render.State{} })
 	}()
 
-	want := render.Renderer{Width: width, Height: height, Location: sun.Greenwich}.Render(time.Now(), render.State{})
+	r.Width, r.Height = width, height
+	want := r.Render(time.Now(), render.State{})
 	for conn := range 2 {
 		c, err := l.AcceptUnix()
 		if err != nil {
@@ -101,7 +114,8 @@ func TestStreamReconnects(t *testing.T) {
 				t.Fatalf("connection %d: got a %d-byte message with sequence %d, want %d bytes, sequence %d",
 					conn, n, binary.LittleEndian.Uint64(msg[8:]), sinkproto.MessageSize(width, height), seq)
 			}
-			// The sun barely moves during the test: a few steps of 65535 at most.
+			// The sun and the art barely move during the test: a few steps of
+			// 65535 at most.
 			if got := int(binary.LittleEndian.Uint16(msg[sinkproto.HeaderSize:])); got < int(want.Pix[0])-64 || got > int(want.Pix[0])+64 {
 				t.Errorf("connection %d: first value %d, want about %d", conn, got, want.Pix[0])
 			}

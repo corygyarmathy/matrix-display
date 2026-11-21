@@ -5,7 +5,6 @@ package render
 
 import (
 	"maps"
-	"math"
 	"time"
 
 	"github.com/corygyarmathy/matrix-display/internal/sun"
@@ -61,10 +60,13 @@ func (h Health) Stale(t time.Time) bool {
 	return t.Sub(h.LastOK) > h.StaleAfter
 }
 
-// Renderer draws frames of one size, for one place.
+// Renderer draws frames of one size, for one place, with one art.
 type Renderer struct {
 	Width, Height int
 	Location      sun.Location
+	// Art is how the art layer looks and moves: the zero Art is
+	// DefaultArt.
+	Art Art
 }
 
 // scene is what every layer sees for one frame.
@@ -76,13 +78,6 @@ type scene struct {
 
 // layer draws onto the canvas, over the layers before it.
 type layer func(c *canvas, sc scene)
-
-// layers in the order they compose. The sun's position is worked out first,
-// into the scene. The presence fade (#8) will come last, after the overlays.
-var layers = []layer{
-	placeholderArt,
-	staleMarker,
-}
 
 // Render draws the frame for time t and state s.
 func (r Renderer) Render(t time.Time, s State) Frame {
@@ -96,13 +91,24 @@ func (r Renderer) Render(t time.Time, s State) Frame {
 // after the first. It draws what Render draws. It is not safe for concurrent
 // use.
 type Live struct {
-	r Renderer
-	c *canvas
+	r      Renderer
+	c      *canvas
+	layers []layer
 }
 
 // Live returns a Live that draws r's frames.
 func (r Renderer) Live() *Live {
-	return &Live{r: r, c: newCanvas(r.Width, r.Height)}
+	return &Live{
+		r: r,
+		c: newCanvas(r.Width, r.Height),
+		// The layers in the order they compose. The sun's position is
+		// worked out first, into the scene. The presence fade (#8) will
+		// come last, after the overlays.
+		layers: []layer{
+			newArt(r.Art, r.Width, r.Height).draw,
+			staleMarker,
+		},
+	}
 }
 
 // RenderInto draws the frame for time t and state s into pix, which holds
@@ -110,7 +116,7 @@ func (r Renderer) Live() *Live {
 func (l *Live) RenderInto(pix []uint16, t time.Time, s State) {
 	clear(l.c.pix)
 	sc := scene{t: t, sun: sun.At(t, l.r.Location), state: s}
-	for _, layer := range layers {
+	for _, layer := range l.layers {
 		layer(l.c, sc)
 	}
 	l.c.round(pix)
@@ -134,7 +140,15 @@ func (c *canvas) set(x, y int, rgb [3]float32) {
 // round writes the canvas into pix at 16 bits, clamping to [0, 1].
 func (c *canvas) round(pix []uint16) {
 	for i, v := range c.pix {
-		pix[i] = uint16(math.Round(float64(min(max(v, 0), 1)) * 65535))
+		switch {
+		case v <= 0:
+			pix[i] = 0
+		case v >= 1:
+			pix[i] = 65535
+		default:
+			// Adding a half and truncating rounds, for values from 0 up.
+			pix[i] = uint16(v*65535 + 0.5)
+		}
 	}
 }
 

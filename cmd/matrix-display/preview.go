@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,8 +31,13 @@ const maxPreviewFrames = 1_000_000
 type previewOptions struct {
 	from, to   time.Time
 	speed, fps float64
+	// motion is how many times faster than real time the art moves in a
+	// video, which is slower than --speed: at a day a minute, the art
+	// moving with simulated time would reshape twice a frame, and flicker.
+	motion     float64
 	scale, gap int
 	location   sun.Location
+	art        render.Art
 	state      render.State
 }
 
@@ -49,6 +55,8 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	scale := flags.Int("scale", 4, "output pixels per panel pixel")
 	gap := flags.Int("gap", 1, "dark output pixels between panel pixels")
 	locationFile := flags.String("location", "", "a file holding the latitude and longitude (default: Greenwich)")
+	motion := flags.Float64("motion", 0, "how many times faster than real time the art moves in a video (default: --speed / 60, at least 1)")
+	art := artFlags(flags)
 	stale := flags.Bool("stale", false, "show a data source as stale throughout, to preview the marker")
 	outPath := flags.String("out", "", "the file to write: .mp4 or .gif (with ffmpeg), or .png for one frame at --from (required)")
 	if err := flags.Parse(args); err != nil {
@@ -60,12 +68,21 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	if !(*speed > 0) || !(*fps > 0) {
 		return errors.New("preview: --speed and --fps must be positive")
 	}
+	if *motion == 0 {
+		*motion = max(1, *speed/60)
+	}
+	if !(*motion > 0) || math.IsInf(*motion, 0) {
+		return errors.New("preview: --motion must be positive")
+	}
 	if *scale < 1 || *gap < 0 || *gap >= *scale {
 		return errors.New("preview: --scale must be at least 1, and --gap less than it")
 	}
 
-	opts := previewOptions{speed: *speed, fps: *fps, scale: *scale, gap: *gap, location: sun.Greenwich}
+	opts := previewOptions{speed: *speed, fps: *fps, motion: *motion, scale: *scale, gap: *gap, location: sun.Greenwich}
 	var err error
+	if opts.art, err = art(); err != nil {
+		return fmt.Errorf("preview: %w", err)
+	}
 	now := time.Now()
 	if *from == "" {
 		opts.from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
@@ -144,8 +161,19 @@ func (opts previewOptions) frameTimes() []time.Time {
 	return times
 }
 
+// renderer draws a still: the art as it is at that moment.
 func (opts previewOptions) renderer() render.Renderer {
-	return render.Renderer{Width: previewWidth, Height: previewHeight, Location: opts.location}
+	return render.Renderer{Width: previewWidth, Height: previewHeight, Location: opts.location, Art: opts.art}
+}
+
+// videoRenderer draws a video's frames, with the art moving opts.motion
+// times faster than real time in the video, not opts.speed times.
+func (opts previewOptions) videoRenderer() render.Renderer {
+	r := opts.renderer()
+	slow := opts.speed / opts.motion
+	r.Art.Reshape = time.Duration(min(float64(r.Art.Reshape)*slow, math.MaxInt64))
+	r.Art.Drift /= slow
+	return r
 }
 
 func writePreviewPNG(path string, opts previewOptions) error {
@@ -190,7 +218,7 @@ func writePreviewVideo(ctx context.Context, path string, opts previewOptions) (i
 		return 0, err
 	}
 
-	r := opts.renderer()
+	r := opts.videoRenderer()
 	var img *image.RGBA64
 	times := opts.frameTimes()
 	var writeErr error
