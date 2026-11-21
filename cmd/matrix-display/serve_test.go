@@ -70,7 +70,43 @@ func TestServeHidesLocation(t *testing.T) {
 	}
 }
 
-// stream sends rendered frames, and reconnects when the sink restarts.
+// Bad --from and --speed fail up front, before the location is read.
+func TestServeRejectsClock(t *testing.T) {
+	for _, flag := range [][]string{
+		{"--from", "noon"}, {"--speed", "0"}, {"--speed", "-1"}, {"--speed", "NaN"}, {"--speed", "1e6"},
+	} {
+		args := append([]string{"serve", "--socket", "s", "--location", "/nonexistent"}, flag...)
+		if err := run(context.Background(), args, new(strings.Builder)); err == nil || !strings.Contains(err.Error(), flag[0]) {
+			t.Errorf("run(%q) = %v, want an error about %s", args, err, flag[0])
+		}
+	}
+}
+
+// The simulated clock starts at from on its first reading, and runs speed
+// times faster than real time from then on.
+func TestSimClock(t *testing.T) {
+	from := time.Date(2025, 6, 21, 5, 0, 0, 0, time.UTC)
+	real := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	clock := simClock(from, 720, func() time.Time { return real })
+	if got := clock(); !got.Equal(from) {
+		t.Errorf("first reading = %s, want %s", got, from)
+	}
+	real = real.Add(5 * time.Second)
+	if got, want := clock(), from.Add(time.Hour); !got.Equal(want) {
+		t.Errorf("after 5s at 720×, the clock reads %s, want %s", got, want)
+	}
+	// Past the largest Duration, it stops rather than wrapping back.
+	real = real.Add(4 * 365 * 24 * time.Hour)
+	clock = simClock(from, maxSpeed, func() time.Time { return real })
+	clock()
+	real = real.Add(4 * 365 * 24 * time.Hour)
+	if got := clock(); !got.Equal(from.Add(math.MaxInt64)) {
+		t.Errorf("after 4 years at %d×, the clock reads %s, want %s", maxSpeed, got, from.Add(math.MaxInt64))
+	}
+}
+
+// stream sends frames rendered at the time its clock gives, and reconnects
+// when the sink restarts.
 func TestStreamReconnects(t *testing.T) {
 	const width, height = 4, 2
 	path := filepath.Join(t.TempDir(), "sink.sock")
@@ -82,14 +118,15 @@ func TestStreamReconnects(t *testing.T) {
 
 	// Art that barely moves, so the frames can be checked against one.
 	art := render.Art{Reshape: 1000 * time.Hour}
+	noon := time.Date(2025, 6, 21, 12, 0, 0, 0, time.UTC)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		stream(ctx, path, time.Millisecond, sun.Greenwich, art, func() render.State { return render.State{} })
+		stream(ctx, path, time.Millisecond, sun.Greenwich, art, func() time.Time { return noon }, func() render.State { return render.State{} })
 	}()
 
-	want := render.Renderer{Width: width, Height: height, Location: sun.Greenwich, Art: art}.Render(time.Now(), render.State{})
+	want := render.Renderer{Width: width, Height: height, Location: sun.Greenwich, Art: art}.Render(noon, render.State{})
 	for conn := range 2 {
 		c, err := l.AcceptUnix()
 		if err != nil {
@@ -113,9 +150,7 @@ func TestStreamReconnects(t *testing.T) {
 				t.Fatalf("connection %d: got a %d-byte message with sequence %d, want %d bytes, sequence %d",
 					conn, n, binary.LittleEndian.Uint64(msg[8:]), sinkproto.MessageSize(width, height), seq)
 			}
-			// The sun and the art barely move during the test: a few steps of
-			// 65535 at most.
-			if got := int(binary.LittleEndian.Uint16(msg[sinkproto.HeaderSize:])); got < int(want.Pix[0])-64 || got > int(want.Pix[0])+64 {
+			if got := binary.LittleEndian.Uint16(msg[sinkproto.HeaderSize:]); got != want.Pix[0] {
 				t.Errorf("connection %d: first value %d, want about %d", conn, got, want.Pix[0])
 			}
 		}

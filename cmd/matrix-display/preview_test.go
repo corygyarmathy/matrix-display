@@ -194,8 +194,8 @@ func TestPreviewMotionClamps(t *testing.T) {
 func TestParsePreviewTime(t *testing.T) {
 	want := time.Date(2025, 6, 21, 21, 30, 0, 0, time.Local)
 	for _, s := range []string{"2025-06-21T21:30", "2025-06-21T21:30:00", want.Format(time.RFC3339)} {
-		if got, err := parsePreviewTime(s); err != nil || !got.Equal(want) {
-			t.Errorf("parsePreviewTime(%q) = %s, %v; want %s", s, got, err, want)
+		if got, err := parseTime(s); err != nil || !got.Equal(want) {
+			t.Errorf("parseTime(%q) = %s, %v; want %s", s, got, err, want)
 		}
 	}
 }

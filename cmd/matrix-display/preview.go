@@ -89,12 +89,12 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	now := time.Now()
 	if *from == "" {
 		opts.from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	} else if opts.from, err = parsePreviewTime(*from); err != nil {
+	} else if opts.from, err = parseTime(*from); err != nil {
 		return fmt.Errorf("preview: --from: %w", err)
 	}
 	if *to == "" {
 		opts.to = opts.from.Add(24 * time.Hour)
-	} else if opts.to, err = parsePreviewTime(*to); err != nil {
+	} else if opts.to, err = parseTime(*to); err != nil {
 		return fmt.Errorf("preview: --to: %w", err)
 	}
 	if !opts.to.After(opts.from) {
@@ -133,9 +133,9 @@ func preview(ctx context.Context, args []string, out io.Writer) error {
 	}
 }
 
-// parsePreviewTime parses RFC 3339, or a date and time with no zone, which is
+// parseTime parses RFC 3339, or a date and time with no zone, which is
 // local time.
-func parsePreviewTime(s string) (time.Time, error) {
+func parseTime(s string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
 	}
@@ -174,15 +174,8 @@ func (opts previewOptions) renderer() render.Renderer {
 // when --motion is so far from --speed that the art can't be drawn.
 func (opts previewOptions) videoRenderer() (render.Renderer, error) {
 	r := opts.renderer()
-	slow := opts.speed / opts.motion
-	// float64(math.MaxInt64) is 2^63, one past the largest Duration.
-	if reshape := float64(r.Art.Reshape) * slow; reshape >= math.MaxInt64 {
-		r.Art.Reshape = math.MaxInt64
-	} else {
-		r.Art.Reshape = time.Duration(reshape)
-	}
-	r.Art.Drift /= slow
-	if err := r.Art.Validate(); err != nil {
+	var err error
+	if r.Art, err = slowArt(r.Art, opts.speed/opts.motion); err != nil {
 		return render.Renderer{}, fmt.Errorf("--motion %g at --speed %g: %w", opts.motion, opts.speed, err)
 	}
 	return r, nil

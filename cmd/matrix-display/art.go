@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/corygyarmathy/matrix-display/internal/render"
 )
@@ -29,4 +31,22 @@ func artFlags(flags *flag.FlagSet) func() (render.Art, error) {
 		}
 		return a, nil
 	}
+}
+
+// slowArt returns a with its motion slowed by a factor of by, for a clock
+// running by times faster than real time, so that the art still moves at its
+// own pace while the sun hurries. It fails when the art can't be drawn that
+// slowly.
+func slowArt(a render.Art, by float64) (render.Art, error) {
+	// float64(math.MaxInt64) is 2^63, one past the largest Duration.
+	if reshape := float64(a.Reshape) * by; reshape >= math.MaxInt64 {
+		a.Reshape = math.MaxInt64
+	} else {
+		a.Reshape = time.Duration(reshape)
+	}
+	a.Drift /= by
+	if err := a.Validate(); err != nil {
+		return render.Art{}, err
+	}
+	return a, nil
 }

@@ -76,6 +76,17 @@ real coordinates never go in this repository, and the renderer never logs
 them. `serve` reconnects whenever the sink restarts. While any data source
 has been unreachable for a few minutes, the bottom-right pixel glows dim amber.
 
+To see another time of day on the panels, `--from` shows that time instead of
+now, and `--speed` runs the clock faster, up to a day a second. The sun and the
+palette follow the simulated clock, and the art still moves in real time. Stop
+the service first, and start it again afterwards, so that the sink is showing
+the real time again:
+
+```sh
+matrix-display serve --socket /run/led-matrix/frames.sock --location "$LOCATION" --from 2026-06-21T12:00           # noon, held
+matrix-display serve --socket /run/led-matrix/frames.sock --location "$LOCATION" --from 2026-06-21T03:00 --speed 720  # a day in two minutes
+```
+
 ## Checking the panels
 
 With the sink running, `test-pattern` sends a sweeping bar (which tears if
